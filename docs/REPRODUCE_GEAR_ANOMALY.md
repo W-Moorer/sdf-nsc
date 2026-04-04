@@ -6,7 +6,7 @@ The checked-in `papers/figures/gear_error_render.png` was produced by this workf
 2. Copy the raw outputs to:
    - `data/outputs/gear_tricubic_1st.csv`
    - `data/outputs/gear_tricubic_2nd.csv`
-3. Apply the historical MAE normalization in `fix_zero.py`.
+3. Apply the historical MAE normalization in `scripts/fix_zero.py`.
 4. Plot the normalized tricubic files against the commercial reference.
 
 Run the full chain from the repository root with:

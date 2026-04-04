@@ -23,7 +23,7 @@ cp data/outputs/gear_1st_highres_0001.csv data/outputs/gear_tricubic_1st.csv
 cp data/outputs/gear_2nd_highres_0001.csv data/outputs/gear_tricubic_2nd.csv
 
 echo "Applying historical MAE normalization..."
-"$PYTHON_BIN" fix_zero.py
+"$PYTHON_BIN" scripts/fix_zero.py
 
 echo "Rendering historical figure..."
 "$PYTHON_BIN" scripts/plot_gear_error.py
