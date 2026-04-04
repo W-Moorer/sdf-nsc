@@ -1,0 +1,24 @@
+\subsection{基于 NanoVDB 的 Hessian 差分提取}
+默认情况下的 NanoVDB 利用分段三线性（Trilinear）插值，由于其在体素簇交界处的导数（法向）仅具备 $C^0$ 级连续性，二阶导数信息通常是不连续的甚至退化为脉冲。受限于硬件存储及查询代价限制，我们延续基础采样框架结构，借助跨越小范围 $n \times \text{Voxel\_Size}$ 的空间中心差分（Central Difference）范式进行六向探查法向场：
+\begin{equation} \label{eq:hessian_diff}
+    \mathbf{W}_{xx} \approx \frac{\nabla_x \mathbf{n}(x+h) - \nabla_x \mathbf{n}(x-h)}{2h}
+\end{equation}
+其中，有限差分步长 $ 直接绑定为隐式网格结构的几何基础单元大小。基于此平滑物理场，我们在 $\mathcal{O}(1)$ 常规读取的时间复杂度约束内完成了局部 $3 \times 3$$ Hessian 张量特征矩阵的组装。 
+
+\subsection{张量坐标空间同步映射}
+利用多点采样子系统获取主动有效接触集（Active Contact Set）时，差分得出的曲率信息位于局部刚体的模型坐标系（Frame M）。在将这些信息输送至时域 LCP 模块前，必须经历向世界坐标系（Frame W）的一致性张量旋转操作。设物体旋转坐标系姿态矩阵为 $\mathbf{R}_{WM}$，张量须接受二阶相似变换操作：
+\begin{equation}
+    \mathbf{W}_{world} = \mathbf{R}_{WM} \cdot \mathbf{W}_{local} \cdot \mathbf{R}_{WM}^T
+\end{equation}
+在物理代码实现里，该变换后的张量同法矢与探测穿透深度一同被封装在接触流形包裹流（Data manifold proxy）中传递。
+
+\subsection{拦截动力学右端项（RHS）闭环融合}
+在最终将几何特征送入基于 APGD 或投影高斯-赛德尔（PGS）的接触约束容器时，系统将阻断传统的一阶距离直接映射。
+算法利用模型的主世界重心速度及转动角速度计算出接触触点相对于受力靶平面的实际三维相切速率 $\mathbf{v}_{rel}$，按照理论模型采用半隐式补偿项执行代数求值。将修正偏置 $\Delta \Phi$ 乘以平滑衰减项，直接加项至接触缓冲距离内：
+\begin{equation}
+C_{curve} = \frac{1}{2} (\Delta t)^2 (\mathbf{v}_{rel})^T \mathbf{W}_{clamped} \mathbf{v}_{rel}
+\end{equation}
+\begin{equation}
+\Phi_{eff} = \Phi_{origin} + \beta \cdot C_{curve}
+\end{equation}
+该流程实现了白盒寄生式侵入，即完全无需更改底层非光滑接触矩阵求逆算法的核心代码，即可凭借几何张量投影实现超越传统 LCP 框架限制的高阶补偿前馈能力。

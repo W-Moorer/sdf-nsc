@@ -1,0 +1,31 @@
+{
+    "model_tag": "Body2",
+
+    "time_col_patterns": [
+        "^time$",
+        "^x:pos_tx"
+    ],
+    "pos_y_col_patterns": [
+        "^y:pos_ty"
+    ],
+    "vel_y_col_patterns": [
+        "^y:vel_ty"
+    ],
+    "acc_y_col_patterns": [
+        "^y:acc_ty"
+    ],
+
+    "time_col_idx": 0,
+    "pos_y_col_idx": 10,
+    "vel_y_col_idx": 13,
+    "acc_y_col_idx": 16,
+    "num_contacts_col_idx": null,
+
+    "TODO": "Prefer pattern-based matching for model-dependent CSV exports; fixed indices are only fallback.",
+    
+    "expected_columns": [
+        "Time", 
+        "Pos_Y", 
+        "Vel_Y"
+    ]
+}

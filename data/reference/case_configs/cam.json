@@ -1,0 +1,12 @@
+{
+    "case_name": "cam",
+    "rmd_file": "assets/cam/simple_cam.rmd",
+    "obj_files": [
+        "assets/cam/models/cam_body1.obj",
+        "assets/cam/models/cam_body2.obj"
+    ],
+    "result_file": "assets/cam/data/cam_data.csv",
+    "reference_format": "recurdyn_csv",
+    "notes": "First external reference case for the chrono platform.",
+    "preserve_chrono_baselines": true
+}

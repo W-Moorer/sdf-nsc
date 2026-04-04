@@ -1,0 +1,20 @@
+{
+    "time_col_patterns": [
+        "^x:vel_rx",
+        "^time$"
+    ],
+    "wrx_col_patterns": [
+        "^y:vel_rx"
+    ],
+    "wry_col_patterns": [
+        "^y:vel_ry"
+    ],
+    "wrz_col_patterns": [
+        "^y:vel_rz"
+    ],
+
+    "time_col_idx": 0,
+    "wrx_col_idx": 3,
+    "wry_col_idx": 4,
+    "wrz_col_idx": 5
+}

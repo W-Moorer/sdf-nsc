@@ -1,0 +1,80 @@
+# CMake
+_build/
+build/
+out/
+_deps/
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# Dependencies
+third_party/chrono/
+third_party/openvdb/.git_vendor_backup/
+
+# Generated data and caches
+data/outputs/
+data/openvdb/
+vtk_out/
+vtk_tmp/
+_remote_probe/
+.git_broken_backup/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+
+# Local scratch and diagnostics
+/chrono.txt
+/clean_test.txt
+/errors_out.txt
+/err_*.txt
+/find_*.py
+/fix.py
+/fix2.py
+/fix_narrative.py
+/fix_zero.py
+/fix_zero.py.save
+/get_size.py
+/main.aux
+/main.log
+/main.out
+/meth_*.txt
+/no_vtk.*
+/out*.txt
+/patch.py
+/replace_all.py
+/run_perf.sh
+/run_plot.py
+/scan_*.txt
+/sim_out.txt
+/temp.cpp
+/test_*.py
+/text_out.txt
+/tmp_*
+/update_meth.py
+/with_vtk.log
+/write_05.py
+/find_res.json
+/find_res.txt
+/find_res2.txt
+/papers/main.pdf
+
+# Temporary helper scripts under scripts/
+scripts/tmp_*.py
+
+# OS/Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

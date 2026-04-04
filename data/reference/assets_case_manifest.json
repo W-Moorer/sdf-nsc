@@ -1,0 +1,38 @@
+[
+    {
+        "case_name": "cam",
+        "case_dir": "assets\\cam",
+        "rmd_file": "simple_cam.rmd",
+        "obj_files": [
+            "models\\cam_body1.obj",
+            "models\\cam_body2.obj"
+        ],
+        "result_files": [
+            "data\\cam_data.csv"
+        ],
+        "other_files": [],
+        "status": "ready",
+        "notes": ""
+    },
+    {
+        "case_name": "simple_gear",
+        "case_dir": "assets\\simple_gear",
+        "rmd_file": "simple_gear.rmd",
+        "obj_files": [
+            "model\\GEAR21.obj",
+            "model\\GEAR22.obj"
+        ],
+        "result_files": [
+            "data\\Gear22.csv"
+        ],
+        "other_files": [
+            "build_scene.py",
+            "extract_objs.py",
+            "locked_parameters.json",
+            "reproducibility.md",
+            "setting.md"
+        ],
+        "status": "ready",
+        "notes": ""
+    }
+]

@@ -1,0 +1,47 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{ctex} % 中文支持
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{authblk}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+
+\title{\textbf{基于有向距离场高阶曲率感知的非平滑接触动力学方法}}
+\author{作者姓名\\ \textit{所属机构/大学}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\input{sections/00_abstract.tex}
+\end{abstract}
+
+\section{引言}
+\input{sections/01_introduction.tex}
+
+\section{相关工作}
+\input{sections/02_related_work.tex}
+
+\section{核心方法：二阶泰勒展开接触模型}
+\input{sections/03_methodology.tex}
+
+\section{系统实现}
+\input{sections/04_implementation.tex}
+
+\section{多体仿真实验}
+\input{sections/05_experiments.tex}
+
+\section{结论}
+\input{sections/06_conclusion.tex}
+
+\bibliographystyle{plain}
+\bibliography{references} % 如果有参考文献可以定义 references.bib
+
+\end{document}
