@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Onset Stress Benchmark</title>
+  <style>
+    body {
+      font-family: "Times New Roman", Times, serif;
+      margin: 24px auto;
+      max-width: 1120px;
+      line-height: 1.45;
+      color: #111;
+      padding: 0 18px 40px;
+      background: #faf8f3;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    p { margin: 8px 0 16px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin: 18px 0 22px;
+    }
+    .card {
+      background: white;
+      border: 1px solid #ddd6c8;
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      margin: 14px 0 24px;
+    }
+    th, td {
+      border: 1px solid #d9d1c3;
+      padding: 8px 10px;
+      text-align: right;
+    }
+    th:first-child, td:first-child { text-align: left; }
+    .fig {
+      background: white;
+      border: 1px solid #ddd6c8;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 0 0 18px;
+    }
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    code {
+      background: #f2eee6;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Onset Stress Case (Version A)</h1>
+  <p>
+    This version-A benchmark keeps a smooth eccentric disk / roller geometry but starts from a positive initial
+    clearance. The follower remains at constant height before first contact, then enters unilateral contact and
+    continues sliding while the cam envelope rises. It is intended to isolate manifold onset behavior before
+    introducing a spring-preloaded version B.
+  </p>
+  <div class="cards">
+    <div class="card">
+      <h2>Geometry</h2>
+      <p>Cam radius: 0.030 m<br/>
+      Eccentricity: 0.006 m<br/>
+      Roller radius: 0.010 m</p>
+    </div>
+    <div class="card">
+      <h2>Setup</h2>
+      <p>Motor speed: -2.000 rad/s<br/>
+      Step size: 0.0010 s<br/>
+      Total time: 0.450 s<br/>
+      Gravity: 0.00 m/s²</p>
+    </div>
+    <div class="card">
+      <h2>Target Onset</h2>
+      <p>Configured onset target: 0.150 s<br/>
+      Piecewise reference onset: 0.15 s</p>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Runtime (s)</th>
+        <th>Pos RMSE (m)</th>
+        <th>Vel RMSE (m/s)</th>
+        <th>Vel Max Abs (m/s)</th>
+        <th>Detected motion onset (s)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Chrono NSC native mesh</td><td>65.408</td><td>0.000319</td><td>0.002888</td><td>0.013053</td><td>0.0</td></tr><tr><td>SDF 1st-order</td><td>3.872</td><td>0.000176</td><td>0.001767</td><td>0.011978</td><td>0.151</td></tr><tr><td>SDF 2nd-order</td><td>4.094</td><td>0.000182</td><td>0.001796</td><td>0.011978</td><td>0.151</td></tr>
+    </tbody>
+  </table>
+  <div class="fig">
+    <h2>Position</h2>
+    <img src="figures/onset_stress_position.png" alt="Onset stress position" />
+  </div>
+  <div class="fig">
+    <h2>Velocity</h2>
+    <img src="figures/onset_stress_velocity.png" alt="Onset stress velocity" />
+  </div>
+</body>
+</html>

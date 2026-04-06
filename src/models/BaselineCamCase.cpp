@@ -193,9 +193,11 @@ void BaselineCamCase::SetupSystem() {
 
     m_backend->InitializeCamCase(
         m_config.cam_mesh_path, m_config.follower_mesh_path,
-        m_config.cam_init_pos, m_config.follower_init_pos,
+        m_config.cam_init_pos, m_config.follower_init_pos, m_config.motor_joint_pos,
         m_config.density, m_config.friction, m_config.restitution,
-        m_config.gravity_y, m_config.motor_speed, m_config.contact_algorithm
+        m_config.gravity_y, m_config.motor_speed, m_config.dynamics_substeps, m_config.env_prefix,
+        m_config.contact_algorithm,
+        m_config.sdf_build, m_config.sample_tuning, m_config.contact_regime, m_config.follower_preload
     );
 }
 

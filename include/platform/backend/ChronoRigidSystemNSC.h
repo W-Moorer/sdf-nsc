@@ -10,10 +10,14 @@
 
 #if defined(SPCC_ENABLE_VDB)
 #include "platform/backend/spcc/ContactActivation.h"
+#include "platform/backend/spcc/ContactTuning.h"
 #include "platform/backend/spcc/VDBSDFField.h"
 #endif
 
 namespace platform {
+namespace models {
+struct FollowerPreloadConfig;
+}
 namespace backend {
 
 struct BodyDebugSnapshot {
@@ -41,10 +45,16 @@ public:
     // Initializer for the Cam case
     void InitializeCamCase(
         const std::string& cam_obj, const std::string& follower_obj,
-        const double* cam_pos, const double* follower_pos,
+        const double* cam_pos, const double* follower_pos, const double* motor_joint_pos,
         double density, double friction, double restitution, 
         double gravity_y, double motor_speed,
-        platform::common::ContactAlgorithm contact_algorithm
+        int dynamics_substeps,
+        const std::string& env_prefix,
+        platform::common::ContactAlgorithm contact_algorithm,
+        const platform::backend::spcc::SdfBuildTuning& sdf_build_tuning,
+        const platform::backend::spcc::SurfaceSampleTuning& sample_tuning,
+        const platform::backend::spcc::ContactRegimeConfig& contact_regime,
+        const platform::models::FollowerPreloadConfig& follower_preload
     );
 
     // Initializer for the Simple Gear case
@@ -57,7 +67,10 @@ public:
         double gravity_y, double motor_speed,
         double gear1_mass, const double* gear1_inertia_xx,
         double gear2_mass, const double* gear2_inertia_xx,
-        bool enable_curvature_term = false
+        bool enable_curvature_term,
+        const platform::backend::spcc::SdfBuildTuning& sdf_build_tuning,
+        const platform::backend::spcc::SurfaceSampleTuning& sample_tuning,
+        const platform::backend::spcc::ContactRegimeConfig& contact_regime
     );
 
     // Legacy initialize to satisfy IRigidSystem base if needed
@@ -99,6 +112,7 @@ private:
     std::vector<platform::backend::spcc::ActiveContactSample> m_active_contacts;
     double m_contact_mu_default = 0.0;
 #endif
+    int m_dynamics_substeps = 1;
 };
 
 } // namespace backend

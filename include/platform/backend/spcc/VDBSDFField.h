@@ -18,6 +18,7 @@ class VDBSDFField final : public SDFField {
         double voxel_size = 5e-4;
         double half_band_width_voxels = 3.0;
         std::string grid_name = "master_sdf";
+        bool direct_phi_hessian = false;
     };
 
     VDBSDFField();

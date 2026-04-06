@@ -218,6 +218,27 @@ if(SPCC_ENABLE_VDB)
     target_link_options(baseline_cam_nsc PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
 endif()
 
+# Eccentric disk / roller follower case executable
+add_executable(baseline_eccentric_roller_nsc apps/baseline_eccentric_roller_nsc/main.cpp)
+target_link_libraries(baseline_eccentric_roller_nsc PRIVATE platform_backend Chrono::Chrono_core)
+if(SPCC_ENABLE_VDB)
+    target_link_options(baseline_eccentric_roller_nsc PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
+endif()
+
+# Onset stress case executable
+add_executable(baseline_onset_stress_nsc apps/baseline_onset_stress_nsc/main.cpp)
+target_link_libraries(baseline_onset_stress_nsc PRIVATE platform_backend Chrono::Chrono_core)
+if(SPCC_ENABLE_VDB)
+    target_link_options(baseline_onset_stress_nsc PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
+endif()
+
+# Onset stress case version B executable
+add_executable(baseline_onset_stress_b_nsc apps/baseline_onset_stress_b_nsc/main.cpp)
+target_link_libraries(baseline_onset_stress_b_nsc PRIVATE platform_backend Chrono::Chrono_core)
+if(SPCC_ENABLE_VDB)
+    target_link_options(baseline_onset_stress_b_nsc PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
+endif()
+
 # Simple gear case executable
 add_executable(baseline_simple_gear_nsc apps/baseline_simple_gear_nsc/main.cpp)
 target_link_libraries(baseline_simple_gear_nsc PRIVATE platform_backend Chrono::Chrono_core)

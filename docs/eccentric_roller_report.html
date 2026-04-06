@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Eccentric Roller Benchmark</title>
+  <style>
+    body {
+      font-family: "Times New Roman", Times, serif;
+      margin: 24px auto;
+      max-width: 1120px;
+      line-height: 1.45;
+      color: #111;
+      padding: 0 18px 40px;
+      background: #faf8f3;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    p { margin: 8px 0 16px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin: 18px 0 22px;
+    }
+    .card {
+      background: white;
+      border: 1px solid #ddd6c8;
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      margin: 14px 0 24px;
+    }
+    th, td {
+      border: 1px solid #d9d1c3;
+      padding: 8px 10px;
+      text-align: right;
+    }
+    th:first-child, td:first-child { text-align: left; }
+    .fig {
+      background: white;
+      border: 1px solid #ddd6c8;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 0 0 18px;
+    }
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    code {
+      background: #f2eee6;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Eccentric Disk / Roller Follower Benchmark</h1>
+  <p>
+    This benchmark compares Chrono native mesh contact against the current SDF 1st-order and 2nd-order
+    contact pipelines on a procedurally generated eccentric disk cam and vertically constrained roller follower.
+    The analytic reference is the ideal no-separation geometry
+    <code>y(t)=e sin(&omega;t)+sqrt((R+r)^2-(e cos(&omega;t))^2)</code>.
+  </p>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Geometry</h2>
+      <p>Cam radius: 0.030 m<br/>
+      Eccentricity: 0.006 m<br/>
+      Roller radius: 0.010 m</p>
+    </div>
+    <div class="card">
+      <h2>Dynamics</h2>
+      <p>Motor speed: -2.000 rad/s<br/>
+      Step size: 0.0020 s<br/>
+      Total time: 1.570796 s</p>
+    </div>
+    <div class="card">
+      <h2>Interpretation</h2>
+      <p>
+        Native mesh is the Chrono baseline. The two SDF modes reuse the current sliding-patch contact path and
+        can be read directly against both the baseline and the analytic envelope.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Dedicated SDF 2nd Defaults</h2>
+      <p>
+        This benchmark uses a dedicated <code>SPCC_ECC</code> tuning profile with
+        <code>max_active_keep=1</code>, <code>cluster_radius=1.5e-3</code>,
+        <code>local_scan_radius=6e-3</code>, <code>avg_point=false</code>,
+        and <code>dynamics_substeps=2</code>.
+      </p>
+    </div>
+  </div>
+
+  <h2>Metrics</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Runtime (s)</th>
+        <th>Pos RMSE (m)</th>
+        <th>Vel RMSE (m/s)</th>
+        <th>Vel Max Abs (m/s)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Chrono NSC native mesh</td><td>128.119</td><td>0.000003</td><td>0.000927</td><td>0.012000</td></tr><tr><td>SDF 1st-order</td><td>15.169</td><td>0.000009</td><td>0.003522</td><td>0.012000</td></tr><tr><td>SDF 2nd-order</td><td>16.819</td><td>0.000009</td><td>0.000670</td><td>0.012000</td></tr>
+    </tbody>
+  </table>
+
+  <div class="fig">
+    <h2>Position</h2>
+    <img src="figures/eccentric_roller_position.png" alt="Position comparison" />
+  </div>
+  <div class="fig">
+    <h2>Velocity</h2>
+    <img src="figures/eccentric_roller_velocity.png" alt="Velocity comparison" />
+  </div>
+  <div class="fig">
+    <h2>Velocity Error</h2>
+    <img src="figures/eccentric_roller_velocity_error.png" alt="Velocity error comparison" />
+  </div>
+</body>
+</html>

@@ -1,7 +1,9 @@
 #include "platform/backend/ChronoRigidSystemNSC.h"
+#include "platform/models/CamCaseConfig.h"
 #include <chrono/physics/ChContactMaterialNSC.h>
 #include <chrono/physics/ChLinkMotorRotationSpeed.h>
 #include <chrono/physics/ChLinkLock.h>
+#include <chrono/physics/ChLinkTSDA.h>
 #include <chrono/geometry/ChTriangleMeshConnected.h>
 #include <chrono/collision/ChCollisionShapeSphere.h>
 
@@ -45,6 +47,21 @@ int GetEnvInt(const char* name, int fallback) {
         return fallback;
     }
     return static_cast<int>(parsed);
+}
+
+std::string MakeScopedEnvName(const std::string& prefix, const char* suffix) {
+    if (prefix.empty()) {
+        return std::string(suffix);
+    }
+    return prefix + "_" + suffix;
+}
+
+double GetScopedEnvDouble(const std::string& prefix, const char* suffix, double fallback) {
+    return GetEnvDouble(MakeScopedEnvName(prefix, suffix).c_str(), fallback);
+}
+
+int GetScopedEnvInt(const std::string& prefix, const char* suffix, int fallback) {
+    return GetEnvInt(MakeScopedEnvName(prefix, suffix).c_str(), fallback);
 }
 
 std::vector<chrono::ChVector3d> BuildDownsampledVertexSamples(const chrono::ChTriangleMeshConnected& mesh,
@@ -242,7 +259,10 @@ public:
         int penetration_count = 0;
         m_activation->BuildActiveSet(master_state, slave_state, *m_sdf,
                                      m_slave_vertices_local, world_samples_W,
-                                     (float)std::static_pointer_cast<chrono::ChContactMaterialNSC>(m_material)->GetSlidingFriction(), active_contacts);
+                                     (float)std::static_pointer_cast<chrono::ChContactMaterialNSC>(m_material)->GetSlidingFriction(),
+                                     sys->GetStep(),
+                                     m_enable_curvature_term,
+                                     active_contacts);
         for (auto& contact : active_contacts) {
             penetration_count++;
             
@@ -262,7 +282,25 @@ public:
             double curvature_term = 0.0;
             if (m_enable_curvature_term) {
                 const double dt = sys->GetStep();
-                curvature_term = 0.5 * dt * dt * chrono::Vdot(v_rel, contact.hessian_W * v_rel);
+                chrono::ChMatrix33<> H_eff = contact.hessian_W;
+                if (contact.curvature_tangential_only) {
+                    H_eff = contact.P_W * H_eff * contact.P_W;
+                }
+                curvature_term = 0.5 * dt * dt * chrono::Vdot(v_rel, H_eff * v_rel);
+                curvature_term *= contact.curvature_gate;
+                if (!std::isfinite(curvature_term)) {
+                    curvature_term = 0.0;
+                }
+                if (contact.curvature_term_abs_max > 0.0 && std::isfinite(contact.curvature_term_abs_max)) {
+                    curvature_term =
+                        std::clamp(curvature_term, -contact.curvature_term_abs_max, contact.curvature_term_abs_max);
+                }
+                if (contact.curvature_term_ratio_max > 0.0 && std::isfinite(contact.curvature_term_ratio_max)) {
+                    const double gap_scale =
+                        std::max(std::abs(contact.phi), std::max(0.0, contact.curvature_gap_floor));
+                    const double ratio_cap = contact.curvature_term_ratio_max * gap_scale;
+                    curvature_term = std::clamp(curvature_term, -ratio_cap, ratio_cap);
+                }
             }
             cinfo.vpB = contact.x_W; // point on slave
             
@@ -342,7 +380,11 @@ void ChronoRigidSystemNSC::Initialize(
 }
 
 void ChronoRigidSystemNSC::StepDynamics(double step_size) {
-    m_system->DoStepDynamics(step_size);
+    const int substeps = std::max(1, m_dynamics_substeps);
+    const double sub_dt = step_size / static_cast<double>(substeps);
+    for (int i = 0; i < substeps; ++i) {
+        m_system->DoStepDynamics(sub_dt);
+    }
 }
 
 double ChronoRigidSystemNSC::GetTime() const {
@@ -363,13 +405,20 @@ double ChronoRigidSystemNSC::GetDynamicSphereVelY() const {
 
 void ChronoRigidSystemNSC::InitializeCamCase(
     const std::string& cam_obj, const std::string& follower_obj,
-    const double* cam_pos, const double* follower_pos,
+    const double* cam_pos, const double* follower_pos, const double* motor_joint_pos,
     double density, double friction, double restitution,
     double gravity_y, double motor_speed,
-    platform::common::ContactAlgorithm contact_algorithm
+    int dynamics_substeps,
+    const std::string& env_prefix,
+    platform::common::ContactAlgorithm contact_algorithm,
+    const platform::backend::spcc::SdfBuildTuning& sdf_build_tuning,
+    const platform::backend::spcc::SurfaceSampleTuning& sample_tuning,
+    const platform::backend::spcc::ContactRegimeConfig& contact_regime,
+    const platform::models::FollowerPreloadConfig& follower_preload
 ) {
     m_cam_body.reset();
     m_follower.reset();
+    m_dynamics_substeps = 1;
 #if defined(SPCC_ENABLE_VDB)
     m_active_contacts.clear();
 #endif
@@ -427,7 +476,9 @@ void ChronoRigidSystemNSC::InitializeCamCase(
     // Motor for Cam to Ground (Revolute around Z axis approx)
     auto motor = std::make_shared<chrono::ChLinkMotorRotationSpeed>();      
     // The revolute motor frame
-    motor->Initialize(cam_body, ground, chrono::ChFrame<>(chrono::ChVector3d(0, 0, 0.05), chrono::QuatFromAngleX(0)));
+    motor->Initialize(cam_body, ground,
+                      chrono::ChFrame<>(chrono::ChVector3d(motor_joint_pos[0], motor_joint_pos[1], motor_joint_pos[2]),
+                                        chrono::QuatFromAngleX(0)));
     auto mfun = std::make_shared<chrono::ChFunctionConst>(motor_speed);     
     motor->SetSpeedFunction(mfun);
     m_system->AddLink(motor);
@@ -456,24 +507,70 @@ void ChronoRigidSystemNSC::InitializeCamCase(
     prismatic->Initialize(m_follower, ground, chrono::ChFrame<>(m_follower->GetPos(), chrono::QuatFromAngleX(chrono::CH_PI_2)));
     m_system->AddLink(prismatic);
 
+    if (follower_preload.enabled) {
+        auto preload = std::make_shared<chrono::ChLinkTSDA>();
+        preload->Initialize(m_follower, ground, false, m_follower->GetPos(),
+                            chrono::ChVector3d(follower_preload.anchor_pos[0], follower_preload.anchor_pos[1],
+                                               follower_preload.anchor_pos[2]));
+        preload->SetRestLength(follower_preload.rest_length);
+        preload->SetSpringCoefficient(follower_preload.stiffness);
+        preload->SetDampingCoefficient(follower_preload.damping);
+        preload->SetActuatorForce(0.0);
+        m_system->AddLink(preload);
+    }
+
 #if defined(SPCC_ENABLE_VDB)
     if (use_vdb) {
+        m_dynamics_substeps = std::max(1, GetScopedEnvInt(env_prefix, "DYNAMICS_SUBSTEPS", dynamics_substeps));
         spcc::VDBSDFField::BuildOptions sdf_options;
-        sdf_options.voxel_size = 1e-4;
-        sdf_options.half_band_width_voxels = 50.0;
+        sdf_options.voxel_size = GetScopedEnvDouble(env_prefix, "VOXEL_SIZE", sdf_build_tuning.voxel_size);
+        sdf_options.half_band_width_voxels =
+            GetScopedEnvDouble(env_prefix, "HALF_BAND_VOXELS", sdf_build_tuning.half_band_width_voxels);
+        sdf_options.direct_phi_hessian =
+            (GetScopedEnvDouble(env_prefix, "DIRECT_PHI_HESSIAN", sdf_build_tuning.direct_phi_hessian ? 1.0 : 0.0) >
+             0.5);
         
         m_gear1_sdf = std::make_unique<spcc::VDBSDFField>(); // reusing the gear1_sdf for Cam
         std::cout << "[DEBUG] Building VDB SDF for Cam with wide band..." << std::endl;
         m_gear1_sdf->BuildFromTriangleMesh(*cam_mesh, sdf_options);
         
-        m_contact_activation.Configure(
-            4.0e-3,   // delta_on
-            5.0e-3,   // delta_off
-            10,       // hold_steps
-            4         // max contacts (Bullet style 4-point manifold)
-        );
+        m_contact_activation.SetEnvPrefix(env_prefix);
+        auto resolved_contact_regime = contact_regime;
+        resolved_contact_regime.activation.delta_on =
+            GetScopedEnvDouble(env_prefix, "DELTA_ON", resolved_contact_regime.activation.delta_on);
+        resolved_contact_regime.activation.delta_off =
+            GetScopedEnvDouble(env_prefix, "DELTA_OFF", resolved_contact_regime.activation.delta_off);
+        resolved_contact_regime.activation.hold_steps =
+            GetScopedEnvInt(env_prefix, "HOLD_STEPS", resolved_contact_regime.activation.hold_steps);
+        resolved_contact_regime.activation.max_active_keep =
+            GetScopedEnvInt(env_prefix, "MAX_CONTACTS", resolved_contact_regime.activation.max_active_keep);
+        resolved_contact_regime.curvature.enabled =
+            (GetScopedEnvDouble(env_prefix, "CURVATURE_ENABLED",
+                                resolved_contact_regime.curvature.enabled ? 1.0 : 0.0) > 0.5);
+        resolved_contact_regime.curvature.tangential_only =
+            (GetScopedEnvDouble(env_prefix, "CURVATURE_TANGENTIAL_ONLY",
+                                resolved_contact_regime.curvature.tangential_only ? 1.0 : 0.0) > 0.5);
+        resolved_contact_regime.curvature.normal_alignment_cos_min =
+            GetScopedEnvDouble(env_prefix, "CURVATURE_ALIGNMENT_COS_MIN",
+                               resolved_contact_regime.curvature.normal_alignment_cos_min);
+        resolved_contact_regime.curvature.max_hessian_frobenius =
+            GetScopedEnvDouble(env_prefix, "CURVATURE_MAX_HESSIAN_FROBENIUS",
+                               resolved_contact_regime.curvature.max_hessian_frobenius);
+        resolved_contact_regime.curvature.max_curvature_term_abs =
+            GetScopedEnvDouble(env_prefix, "CURVATURE_MAX_ABS",
+                               resolved_contact_regime.curvature.max_curvature_term_abs);
+        resolved_contact_regime.curvature.max_curvature_term_ratio =
+            GetScopedEnvDouble(env_prefix, "CURVATURE_MAX_RATIO",
+                               resolved_contact_regime.curvature.max_curvature_term_ratio);
+        resolved_contact_regime.curvature.gap_floor =
+            GetScopedEnvDouble(env_prefix, "CURVATURE_GAP_FLOOR", resolved_contact_regime.curvature.gap_floor);
+        m_contact_activation.SetPolicy(resolved_contact_regime);
 
-        std::vector<chrono::ChVector3d> slave_samples = BuildDownsampledVertexSamples(*follower_mesh, 0); 
+        const double cam_surface_res = GetScopedEnvDouble(env_prefix, "SURFACE_RES", sample_tuning.surface_res);
+        const int cam_max_samples = GetScopedEnvInt(env_prefix, "MAX_SAMPLES", sample_tuning.max_samples);
+        std::vector<chrono::ChVector3d> slave_samples =
+            BuildDownsampledVertexSamples(*follower_mesh, static_cast<std::size_t>(std::max(0, cam_max_samples)),
+                                          cam_surface_res); 
 
         auto sdf_callback = std::make_shared<SDFCollisionCallback>(
             cam_body, m_follower, m_gear1_sdf.get(), &m_contact_activation, slave_samples, material,
@@ -518,10 +615,14 @@ void ChronoRigidSystemNSC::InitializeSimpleGearCase(
     double gravity_y, double motor_speed,
     double gear1_mass, const double* gear1_inertia_xx,
     double gear2_mass, const double* gear2_inertia_xx,
-    bool enable_curvature_term
+    bool enable_curvature_term,
+    const platform::backend::spcc::SdfBuildTuning& sdf_build_tuning,
+    const platform::backend::spcc::SurfaceSampleTuning& sample_tuning,
+    const platform::backend::spcc::ContactRegimeConfig& contact_regime
 ) {
     m_cam_body.reset();
     m_follower.reset();
+    m_dynamics_substeps = 1;
 #if defined(SPCC_ENABLE_VDB)
     m_active_contacts.clear();
 #endif
@@ -578,29 +679,52 @@ void ChronoRigidSystemNSC::InitializeSimpleGearCase(
     spcc::VDBSDFField::BuildOptions sdf_options;
     // Use an adequate voxel size based on mesh_scale or global size.
     // Make sure it's smaller than the gear mesh features!
-    sdf_options.voxel_size = GetEnvDouble("SPCC_GEAR_VOXEL_SIZE", 2e-5);
-    sdf_options.half_band_width_voxels = 20.0; // Maintain 2mm width
+    sdf_options.voxel_size = GetEnvDouble("SPCC_GEAR_VOXEL_SIZE", sdf_build_tuning.voxel_size);
+    sdf_options.half_band_width_voxels =
+        GetEnvDouble("SPCC_GEAR_HALF_BAND_VOXELS", sdf_build_tuning.half_band_width_voxels);
+    sdf_options.direct_phi_hessian =
+        (GetEnvDouble("SPCC_GEAR_DIRECT_PHI_HESSIAN", sdf_build_tuning.direct_phi_hessian ? 1.0 : 0.0) > 0.5);
     m_gear1_sdf = std::make_unique<spcc::VDBSDFField>();
     std::cout << "[DEBUG] Building VDB SDF for gear 1..." << std::endl;
     m_gear1_sdf->BuildFromTriangleMesh(*mesh1, sdf_options);
     
     // Configure contact activation
-    const double gear_delta_on = GetEnvDouble("SPCC_GEAR_DELTA_ON", 1e-4);
-    const double gear_delta_off = GetEnvDouble("SPCC_GEAR_DELTA_OFF", 5e-4);
-    const int gear_hold_steps = GetEnvInt("SPCC_GEAR_HOLD_STEPS", 2);
-    const int gear_max_contacts = GetEnvInt("SPCC_GEAR_MAX_CONTACTS", 100);
-    m_contact_activation.Configure(
-        gear_delta_on,
-        gear_delta_off,
-        gear_hold_steps,
-        static_cast<std::size_t>(std::max(0, gear_max_contacts))
-    );
+    m_contact_activation.SetEnvPrefix("SPCC_GEAR");
+    auto resolved_contact_regime = contact_regime;
+    resolved_contact_regime.activation.delta_on =
+        GetEnvDouble("SPCC_GEAR_DELTA_ON", resolved_contact_regime.activation.delta_on);
+    resolved_contact_regime.activation.delta_off =
+        GetEnvDouble("SPCC_GEAR_DELTA_OFF", resolved_contact_regime.activation.delta_off);
+    resolved_contact_regime.activation.hold_steps =
+        GetEnvInt("SPCC_GEAR_HOLD_STEPS", resolved_contact_regime.activation.hold_steps);
+    resolved_contact_regime.activation.max_active_keep =
+        GetEnvInt("SPCC_GEAR_MAX_CONTACTS", resolved_contact_regime.activation.max_active_keep);
+    resolved_contact_regime.curvature.enabled =
+        (GetEnvDouble("SPCC_GEAR_CURVATURE_ENABLED", resolved_contact_regime.curvature.enabled ? 1.0 : 0.0) > 0.5);
+    resolved_contact_regime.curvature.tangential_only =
+        (GetEnvDouble("SPCC_GEAR_CURVATURE_TANGENTIAL_ONLY",
+                      resolved_contact_regime.curvature.tangential_only ? 1.0 : 0.0) > 0.5);
+    resolved_contact_regime.curvature.normal_alignment_cos_min =
+        GetEnvDouble("SPCC_GEAR_CURVATURE_ALIGNMENT_COS_MIN",
+                     resolved_contact_regime.curvature.normal_alignment_cos_min);
+    resolved_contact_regime.curvature.max_hessian_frobenius =
+        GetEnvDouble("SPCC_GEAR_CURVATURE_MAX_HESSIAN_FROBENIUS",
+                     resolved_contact_regime.curvature.max_hessian_frobenius);
+    resolved_contact_regime.curvature.max_curvature_term_abs =
+        GetEnvDouble("SPCC_GEAR_CURVATURE_MAX_ABS", resolved_contact_regime.curvature.max_curvature_term_abs);
+    resolved_contact_regime.curvature.max_curvature_term_ratio =
+        GetEnvDouble("SPCC_GEAR_CURVATURE_MAX_RATIO", resolved_contact_regime.curvature.max_curvature_term_ratio);
+    resolved_contact_regime.curvature.gap_floor =
+        GetEnvDouble("SPCC_GEAR_CURVATURE_GAP_FLOOR", resolved_contact_regime.curvature.gap_floor);
+    m_contact_activation.SetPolicy(resolved_contact_regime);
 
     // Register custom collision callback and sample slave vertices
     std::vector<chrono::ChVector3d> slave_samples;
     // Downsample slightly or use all vertices
-    const double gear_surface_res = GetEnvDouble("SPCC_GEAR_SURFACE_RES", 5.0e-5);
-    slave_samples = BuildDownsampledVertexSamples(*mesh2, 25000, gear_surface_res); 
+    const double gear_surface_res = GetEnvDouble("SPCC_GEAR_SURFACE_RES", sample_tuning.surface_res);
+    const int gear_max_samples = GetEnvInt("SPCC_GEAR_MAX_SAMPLES", sample_tuning.max_samples);
+    slave_samples = BuildDownsampledVertexSamples(*mesh2, static_cast<std::size_t>(std::max(0, gear_max_samples)),
+                                                  gear_surface_res); 
 
     auto sdf_callback = std::make_shared<SDFCollisionCallback>(
         m_gear1, m_gear2, m_gear1_sdf.get(), &m_contact_activation, slave_samples, material, &m_active_contacts,

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Onset Stress Benchmark Version B</title>
+  <style>
+    body {
+      font-family: "Times New Roman", Times, serif;
+      margin: 24px auto;
+      max-width: 1120px;
+      line-height: 1.45;
+      color: #111;
+      padding: 0 18px 40px;
+      background: #faf8f3;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    p { margin: 8px 0 16px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin: 18px 0 22px;
+    }
+    .card {
+      background: white;
+      border: 1px solid #ddd6c8;
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      margin: 14px 0 24px;
+    }
+    th, td {
+      border: 1px solid #d9d1c3;
+      padding: 8px 10px;
+      text-align: right;
+    }
+    th:first-child, td:first-child { text-align: left; }
+    .fig {
+      background: white;
+      border: 1px solid #ddd6c8;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 0 0 18px;
+    }
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <h1>Onset Stress Case (Version B)</h1>
+  <p>
+    Version B adds a weak follower return spring-damper so that, after first contact, the roller remains close to the
+    cam envelope instead of flying ballistically. This is the benchmark intended to validate post-onset sustained
+    sliding against the same piecewise analytic reference used in version A.
+  </p>
+  <div class="cards">
+    <div class="card">
+      <h2>Geometry</h2>
+      <p>Cam radius: 0.030 m<br/>
+      Eccentricity: 0.006 m<br/>
+      Roller radius: 0.010 m</p>
+    </div>
+    <div class="card">
+      <h2>Spring-Damper</h2>
+      <p>Anchor Y: 0.000000 m<br/>
+      Rest length: 0.041360 m<br/>
+      Stiffness: 680.0 N/m<br/>
+      Damping: 50.0 Ns/m</p>
+    </div>
+    <div class="card">
+      <h2>Setup</h2>
+      <p>Motor speed: -2.000 rad/s<br/>
+      Step size: 0.0010 s<br/>
+      Total time: 0.450 s<br/>
+      Reference onset: 0.15 s</p>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Runtime (s)</th>
+        <th>Pos RMSE (m)</th>
+        <th>Vel RMSE (m/s)</th>
+        <th>Late Vel RMSE (m/s)</th>
+        <th>Vel Max Abs (m/s)</th>
+        <th>Detected motion onset (s)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Chrono NSC native mesh</td><td>63.540</td><td>0.000003</td><td>0.000860</td><td>0.000885</td><td>0.009924</td><td>0.15</td></tr><tr><td>SDF 1st-order</td><td>124.531</td><td>0.000004</td><td>0.000856</td><td>0.000808</td><td>0.011978</td><td>0.151</td></tr><tr><td>SDF 2nd-order</td><td>124.536</td><td>0.000004</td><td>0.000856</td><td>0.000807</td><td>0.011978</td><td>0.151</td></tr>
+    </tbody>
+  </table>
+  <div class="fig">
+    <h2>Position</h2>
+    <img src="figures/onset_stress_b_position.png" alt="Onset stress B position" />
+  </div>
+  <div class="fig">
+    <h2>Velocity</h2>
+    <img src="figures/onset_stress_b_velocity.png" alt="Onset stress B velocity" />
+  </div>
+</body>
+</html>

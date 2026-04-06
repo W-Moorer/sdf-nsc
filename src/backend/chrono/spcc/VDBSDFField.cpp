@@ -76,6 +76,7 @@ struct VDBSDFField::Impl {
     openvdb::FloatGrid::Ptr open_grid;
     nanovdb::GridHandle<nanovdb::HostBuffer> nano_handle;
     const nanovdb::NanoGrid<float>* nano_grid = nullptr;
+    bool direct_phi_hessian = false;
     bool ready = false;
     std::string last_error;
 };
@@ -96,6 +97,7 @@ bool VDBSDFField::BuildFromTriangleMesh(const chrono::ChTriangleMeshConnected& m
     impl_->open_grid.reset();
     impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
     impl_->nano_grid = nullptr;
+    impl_->direct_phi_hessian = options.direct_phi_hessian;
     impl_->ready = false;
 
     if (!IsFiniteScalar(options.voxel_size) || options.voxel_size <= 0.0) {
@@ -290,7 +292,7 @@ bool VDBSDFField::QueryPhiGradHessianM(const chrono::ChVector3d& x_M,
     // Finite difference step (2*voxel_size) for Hessian
     double h = impl_->nano_grid->voxelSize()[0] * 2.0;
 
-    if (GetEnvDouble("SPCC_GEAR_DIRECT_PHI_HESSIAN", 0.0) > 0.5) {
+    if (impl_->direct_phi_hessian) {
         auto phi_func = [&](const chrono::ChVector3d& point) -> double {
             double d = 0.0;
             chrono::ChVector3d g(0, 1, 0);

@@ -35,6 +35,7 @@ struct ActiveContactSample {
     chrono::ChVector3d xi_slave_S;
     chrono::ChVector3d x_W;
     chrono::ChVector3d x_master_M;
+    chrono::ChVector3d x_deepest_master_M;
 
     double phi = 0.0;
 
@@ -58,9 +59,19 @@ struct ActiveContactSample {
     chrono::ChVector3d v_rel_W;
     double curvature_term = 0.0;
     double phi_eff = 0.0;
+    double curvature_gate = 1.0;
+    bool curvature_tangential_only = false;
+    double curvature_term_abs_max = 0.0;
+    double curvature_term_ratio_max = 0.0;
+    double curvature_gap_floor = 0.0;
+    double queried_normal_alignment = 1.0;
+    double hessian_frobenius = 0.0;
 
     int active_age = 0;
     int cluster_size = 1;
+    std::size_t manifold_id = 0;
+    bool manifold_matched = false;
+    double patch_weight_sum = 1.0;
 };
 
 struct SPCCProblemInput {
