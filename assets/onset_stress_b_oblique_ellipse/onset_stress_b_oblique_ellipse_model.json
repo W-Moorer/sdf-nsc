@@ -2,10 +2,11 @@
   "cam_radius": 0.03,
   "cam_eccentricity": 0.006,
   "cam_thickness": 0.02,
-  "roller_radius": 0.01,
-  "roller_thickness": 0.018,
+  "follower_ellipse_ax": 0.02,
+  "follower_ellipse_ay": 0.008,
+  "follower_thickness": 0.018,
   "cam_segments": 160,
-  "roller_segments": 128,
+  "follower_segments": 160,
   "phase": 3.141592653589793,
   "cam_init_pos": [
     0.0,
@@ -23,20 +24,22 @@
   "restitution": 0.0,
   "motor_speed": -2.0,
   "step_size": 0.001,
-  "total_time": 0.45,
+  "total_time": 0.25,
   "target_onset_time": 0.15,
-  "dynamics_substeps": 32,
+  "dynamics_substeps": 8,
+  "follower_x_offset": 0.012,
+  "variant": "oblique_ellipse",
   "follower_init_pos": [
-    0.0,
-    0.04136029035991934,
+    0.012,
+    0.03547340240761005,
     0.0
   ],
   "preload_anchor_pos": [
-    0.0,
+    0.012,
     0.0,
     0.0
   ],
-  "preload_rest_length": 0.04136029035991934,
+  "preload_rest_length": 0.03547340240761005,
   "preload_stiffness": 670.0,
   "preload_damping": 47.0
 }

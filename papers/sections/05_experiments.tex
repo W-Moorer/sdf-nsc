@@ -20,13 +20,13 @@
     \centering
     \begin{minipage}{0.48\textwidth}
         \centering
-        \includegraphics[width=\linewidth]{figures/fig_accuracy.pdf}
+        \includegraphics[width=\linewidth]{fig_accuracy.pdf}
         \caption{在基础时间步长（$\Delta t = 0.005\text{s}$）下，原生 Mesh、一阶 SDF 与 二阶 Hessian SDF 的响应对比。}
         \label{fig:accuracy}
     \end{minipage}\hfill
     \begin{minipage}{0.48\textwidth}
         \centering
-        \includegraphics[width=\linewidth]{figures/fig_robustness.pdf}
+        \includegraphics[width=\linewidth]{fig_robustness.pdf}
         \caption{在超大时间步长（$\Delta t = 0.01\text{s}$）下的稳定性测试对比。二阶 Hessian 系统在苛刻步长下依然收敛平稳。}
         \label{fig:robustness}
     \end{minipage}
@@ -69,9 +69,22 @@ y(t)=e\sin(\omega t)+\sqrt{(R+r)^2-(e\cos(\omega t))^2},
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/eccentric_roller_benchmark.pdf}
+    \includegraphics[width=\linewidth]{eccentric_roller_benchmark.pdf}
     \caption{偏心圆盘-滚子从动件解析对照基准。上图给出从动件位移轨迹，中图给出速度轨迹，下图给出相对于解析参考的速度误差。该算例属于光滑连续滑移接触，2nd-order SDF 在保持与 1st-order SDF 同量级开销的同时，显著降低了速度误差，并在该指标上逼近且略优于 Chrono 原生网格接触。}
     \label{fig:eccentric_roller}
+\end{figure}
+
+\subsection{接触建立与持续滑移的应力测试 (Onset Stress B)}
+为了进一步区分“首次建立接触时的 manifold 激活误差”与“建立接触后的持续滑移误差”，本文在 Version A 的正间隙起始偏心圆盘-滚子模型基础上，引入了一个弱的 follower return spring-damper，从而构造出 Version B 应力测试。该模型仍然保持与 Version A 相同的光滑几何、相同的目标首次接触时刻（$t_{\mathrm{on}}\approx 0.15$ s）和相同的解析参考，但通过弱预载使从动件在 onset 之后持续贴近包络运动，而不再像 Version A 那样在首次碰撞后以近似自由飞行方式脱开。
+
+在当前收敛后的默认设置下，Version B 采用 $\Delta t = 0.001$ s、32 个 dynamics substeps、$100\,\mu$m 的 SDF 体素分辨率以及 $k=670$ N/m、$c=47$ Ns/m 的 follower return spring-damper。实验结果如图 \ref{fig:onset_stress_b} 所示。Chrono 原生网格接触在该算例上的速度 RMSE 为 $8.59\times10^{-4}$ m/s，总耗时为 $53.5$ s；1st-order SDF 的速度 RMSE 为 $8.43\times10^{-4}$ m/s，总耗时为 $66.9$ s；2nd-order SDF 则进一步降低到 $8.41\times10^{-4}$ m/s，总耗时为 $66.3$ s。也就是说，在这个专门针对 onset 后持续滑移设计的 stress case 上，经过面向连续接触的局部候选筛选、局部几何拟合与更高时间分辨率处理后，两条 SDF 曲线都已经在速度误差指标上达到并略微超过原生 mesh，其中 2nd-order SDF 取得了最优结果。
+
+这一结果的意义在于：它说明当前框架中针对连续滑移接触加入的 persistent sliding manifold 与局部几何拟合并非只在完整工业凸轮算例中“看起来有效”，而是能够在解析可控、首次接触时刻明确、后续持续滑移阶段可单独检验的 stress benchmark 中真实降低峰值误差并恢复长期贴合；与此同时，面向 onset 的候选筛选则为该过程提供了额外的接触建立稳定化机制。与前述 eccentric benchmark 相比，Version B 更强调从自由间隙进入接触后长期维持贴合的难度；与后续 twin gear benchmark 相比，它又避免了 $C^0$ 奇异边界与多分支最近点切换，因此能够更干净地验证连续接触场景下的高阶 SDF 接触建模能力。
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{onset_stress_benchmark.pdf}
+    \caption{Onset Stress Benchmark Version B。该算例在 Version A 的正间隙起始模型上加入弱预载 spring-damper，使从动件在首次接触后持续贴近解析包络。上图给出位移轨迹，中图给出速度轨迹并放大 onset 邻域，下图给出相对于分段解析参考的速度误差。结果表明，在持续滑移阶段，1st-order 与 2nd-order SDF 都已达到并略微优于原生 mesh 的速度精度，其中 2nd-order SDF 最优；该结果主要得益于 persistent sliding manifold 与局部几何拟合，onset 候选筛选则提供了辅助稳定化作用。}
+    \label{fig:onset_stress_b}
 \end{figure}
 
 \subsection{复杂啮合中的改善与剩余局限 (Twin Gear Benchmark)}
@@ -85,7 +98,7 @@ y(t)=e\sin(\omega t)+\sqrt{(R+r)^2-(e\cos(\omega t))^2},
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/gear_error.pdf}
+    \includegraphics[width=\linewidth]{gear_error.pdf}
     \caption{Twin Gear 齿轮啮合系统在不同曲率计算策略下的从动轮角速度瞬态响应曲线及误差分析。最新实现下，2nd-order SDF 已经能够在全时间窗 MAE 上优于 1st-order SDF，并在轮齿交接区削弱局部振荡；但相较于商业工业基准，点接触二阶微分模型在 $C^0$ 奇异边界附近仍保留可见的残余误差，表明其改进是显著的但并非终局性的。}
     \label{fig:gear_error}
 \end{figure}

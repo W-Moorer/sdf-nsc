@@ -1,6 +1,6 @@
 \subsection{基于 NanoVDB 的 Hessian 差分提取}
 
-在当前实现中，NanoVDB 默认采用 Trilinear 插值进行 SDF 查询。考虑到离散距离场在体素交界附近的高阶不连续性，本文并不直接对标量距离场 $\Phi$ 求 Hessian，而是先查询单位法向场
+在当前实现中，NanoVDB 默认采用 Trilinear 插值进行 SDF 查询\cite{museth2021nanovdb}。考虑到离散距离场在体素交界附近的高阶不连续性，本文并不直接对标量距离场 $\Phi$ 求 Hessian，而是先查询单位法向场
 \begin{equation}
     \mathbf{n} = \frac{\nabla \Phi}{\|\nabla \Phi\|},
 \end{equation}
@@ -35,3 +35,50 @@
 \end{equation}
 
 随后，该 $\Phi_{eff}$ 被直接写入接触约束容器，并作为 LCP/NSC 主方程右端项的一部分送入底层互补模块。由此，实现保持了对白盒寄生式注入结构的遵循，即不改写互补求解主链本身，而是通过高阶几何前馈修正接触约束输入。
+
+算法 \ref{alg:slidingpatch} 与算法 \ref{alg:compactdiscrete} 分别概括了当前实现中两类局部接触表示的核心执行流程。二者共享同一底层 NSC/LCP 求解主链，但在候选样本筛选、patch 几何封装以及曲率项启用时机上存在本质区别。
+
+\begin{algorithm}[htbp]
+\caption{面向光滑连续接触的 \texttt{SlidingPatch} 流程}
+\label{alg:slidingpatch}
+\begin{algorithmic}[1]
+\Require 从动体采样点 $\mathcal{S}$、上一时刻流形集合 $\mathcal{M}^{-}$、SDF 查询接口、模式 $\in \{\texttt{SdfFirstOrder},\texttt{SdfSecondOrder}\}$
+\Ensure 带有有效间隙 $\Phi_{eff}$ 的活动接触 patch
+\State 对 $\mathcal{S}$ 中每个样本查询 $(\Phi,\nabla \Phi)$
+\State 剔除不满足 separating-velocity cutoff 的候选样本
+\State 将剩余候选样本聚类为局部 patch
+\State 将当前 patch 与 $\mathcal{M}^{-}$ 匹配，以保持 persistent manifold 身份
+\State 通过 representative query 与局部几何拟合更新代表点
+\State 对未通过 onset-aware filtering 的早激活候选进行拒绝
+\If{当前模式为 \texttt{SdfSecondOrder}}
+    \State 在代表几何处查询 Hessian / Weingarten 张量
+    \State 计算 $C_{curve} \gets \frac{1}{2}(\Delta t)^2 \mathbf{v}_{rel}^{T}\mathbf{W}\mathbf{v}_{rel}$
+    \State 置 $\Phi_{eff} \gets \Phi + C_{curve}$
+\Else
+    \State 置 $\Phi_{eff} \gets \Phi$
+\EndIf
+\State 将活动 patch 写入 NSC/LCP 接触容器
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[htbp]
+\caption{面向紧凑或奇异接触的 \texttt{CompactDiscrete} 流程}
+\label{alg:compactdiscrete}
+\begin{algorithmic}[1]
+\Require 从动体采样点 $\mathcal{S}$、SDF 查询接口、模式 $\in \{\texttt{SdfFirstOrder},\texttt{SdfSecondOrder}\}$
+\Ensure 保留主导几何的紧凑活动 patch 集合
+\State 对 $\mathcal{S}$ 中每个样本查询 $(\Phi,\nabla \Phi)$
+\State 剔除不满足 separating-velocity cutoff 的候选样本
+\State 按空间半径阈值与法向夹角阈值对剩余候选进行聚类
+\State 在每个 patch 内执行法向平均
+\State 对 $\Phi$、梯度与 Hessian 保留主导/最深几何
+\State 按预设的紧凑 patch 预算截断活动集合
+\If{当前模式为 \texttt{SdfSecondOrder}}
+    \State 在保留的 patch 几何上计算局部 $C_{curve}$
+    \State 置 $\Phi_{eff} \gets \Phi + C_{curve}$
+\Else
+    \State 置 $\Phi_{eff} \gets \Phi$
+\EndIf
+\State 将紧凑活动 patch 写入 NSC/LCP 接触容器
+\end{algorithmic}
+\end{algorithm}

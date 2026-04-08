@@ -1,8 +1,8 @@
-\subsection{非平滑接触与多体时间步进法}
-经典刚体动力学领域中，关于约束与接触的处理大致可分为罚函数法（Penalty Method / SMC）和互补法（NSC）。Moreau 和 Jean 提出的基于 LCP 的速度级时间步进法因能保障严格非穿透性被广泛植入至开源与商业引擎（如 Project Chrono, PhysX 等）。在标准步进算法的设计中，碰撞被视作发生在“一阶无限薄平面的切平面空间”，其通过 Baumgarte 稳定化参数 $\alpha$ 按反比 $\Delta t$ 纠正现行误差。多位学者指出此刚性修正极易引发数值爆炸，因而提出了各类基于阻尼衰减或CFM（Constraint Force Mixing）的柔性缓冲。
+\subsection{非平滑接触与多体时间步进}
+经典刚体接触求解大致可以分为罚函数/顺从接触（Penalty or compliant contact）与基于互补或微分变分不等式的非平滑接触（NSC）两条主线。围绕速度级时间步进与互补建模，Jean 的非光滑接触动力学、Stewart--Trinkle 的隐式时间步进，以及 Anitescu--Potra 和 Anitescu--Hart 的线性互补建模与约束稳定化，共同奠定了现代刚体接触中的 LCP/MLCP 框架基础\cite{jean1999nonsmooth,stewart1996implicit,anitescu1997formulating,anitescu2004constraint}。在此之后，面向锥互补和大规模刚体系统的迭代求解、矩阵自由策略和数值比较研究进一步发展了该主线\cite{anitescu2010iterative,tasora2011matrixfree,melanz2017comparison}。在工程多体动力学实践中，Project Chrono 等平台则将这些非平滑建模思想扩展到并行多物理场仿真\cite{mazhar2013chrono}；同时，Baumgarte 稳定化和刚柔/顺从接触比较研究也表明，约束漂移控制、接触刚度以及摩擦处理方式会显著影响接触相位误差与数值稳定性\cite{baumgarte1972stabilization,pazouki2017compliant,pfeiffer2012nonsmooth}。
 
-\subsection{隐式几何与 SDF 碰撞代理}
-以 OpenVDB/NanoVDB 为先驱的稀疏体素网格结构极大加快了距离场求解效率，成为现今渲染渲染与碰撞算法的主流基础。研究者常使用球追踪（Sphere Tracing）或单点刺探（Point-probe）对 SDF 进行快速深度评估。然而，在离散网格向亚网格级别内插获取法向量时，常常因跨越体素带来梯度的不连续性。现有的平滑方法多集中在预处理阶段，使用几何平滑滤波器对 SDF 整体网格实行拉普拉斯光滑衰减，但这会丧失物理本体的精确尖锐特征（Sharp features）。
+\subsection{隐式几何、距离场与碰撞代理}
+在几何表示与碰撞检测领域，边界距离和层级包围体方法长期构成网格接触的基础。典型工作包括 GJK 距离算法、Baraff 的刚体接触力与非穿透分析，以及面向广义碰撞检测的动态包围体层级\cite{gilbert1988fast,baraff1989analytical,baraff1994fast,larsson2006dbvh}。对于复杂可变形几何，布料接触与可变形体碰撞检测研究进一步强调了稳健接触处理对动力学品质的重要性\cite{bridson2002robust,teschner2005collision}。另一方面，距离场作为隐式几何代理已被广泛用于形状表达、碰撞查询与安全步长追踪：ADF 将距离值组织为可自适应压缩的层级表示，sphere tracing 展示了基于距离上界的稳定查询方式，而 OpenVDB 与 NanoVDB 则为高分辨率稀疏距离场提供了高效的数据结构基础\cite{frisken2000adf,hart1996sphere,museth2013vdb,museth2021nanovdb}。围绕 SDF 的接触与碰撞处理，已有工作考察了点到 SDF 的连续碰撞检测、polygon soup 的距离场构建、基于局部优化的稳健 SDF 碰撞处理，以及 SDF 接触与传统离散元接触之间的统一建模\cite{xu2014ccdpointsdf,xu2014polygonsoup,macklin2020sdfcollision,lai2024unifying}。这些工作说明 SDF 作为几何代理具有明显优势，但也揭示了插值、差分与最近点分支切换会在亚体素尺度上放大法向与曲率的不连续性。
 
-\subsection{对高阶与曲率的先验探索}
-在图形学研究中，已有学者注意到了一阶截断的局限性并引入曲率补偿模型，如通过特征映射（Feature matching）预测未来时刻的穿透状态。但这些方法多用于位置级动力学（PBD）的投影视角，在正统以物理量纲标定的脉冲冲量 LCP 框架下，结合连续距离场本征二阶偏导矩阵（Hessian Tensor）作为动位移反馈修正的研究尚属真空。本文致力于填补这一鸿沟。
+\subsection{高阶几何、位置级稳健化与接触表示}
+图形学与几何仿真领域同样长期关注一阶接触近似的局限，并发展出多种位置级、优化级或异步接触策略。代表性的工作包括 Position Based Dynamics 及其顺从约束扩展 XPBD、面向小步长显式稳定化的 small-step simulation、以及强调接触处理精度的固体位置基仿真\cite{muller2007pbd,macklin2016xpbd,macklin2019smallsteps,francu2017solids}。另一类工作则从异步接触与变分接触出发，试图通过更细粒度的事件处理或更一致的能量式接触模型，提高复杂接触中的稳健性与并行性\cite{harmon2009acm,vouga2011avcm,ainsley2012spacm}。在优化式接触建模方面，Incremental Potential Contact (IPC) 进一步展示了 barrier/势函数方法在大变形和复杂接触场景中的稳健优势\cite{li2020ipc}。与上述位置级或优化级路线不同，本文关心的是另一条路径：在不改写底层 NSC/LCP 速度级互补主链的前提下，将 SDF 法向流形上的二阶几何信息以 Hessian/Weingarten 张量的形式注入接触约束，并进一步根据接触类型选择不同的局部接触表示。

@@ -337,6 +337,9 @@ void ContactActivation::SetPolicy(const ContactRegimeConfig& policy) {
     local_fit_max_shift_ratio_default_ = policy.activation.local_fit_max_shift_ratio;
     local_fit_blend_default_ = policy.activation.local_fit_blend;
     local_fit_reject_positive_phi_default_ = policy.activation.local_fit_reject_positive_phi;
+    onset_gate_current_phi_max_default_ = policy.activation.onset_gate_current_phi_max;
+    single_point_local_fit_path_samples_default_ = std::max(0, policy.activation.single_point_local_fit_path_samples);
+    single_point_local_fit_backtrack_scale_default_ = policy.activation.single_point_local_fit_backtrack_scale;
     curvature_gate_enabled_ = policy.curvature.enabled;
     curvature_tangential_only_default_ = policy.curvature.tangential_only;
     normal_alignment_cos_min_default_ = policy.curvature.normal_alignment_cos_min;
@@ -1239,9 +1242,49 @@ void ContactActivation::BuildActiveSet(const RigidBodyStateW& master_pred,
                     GetScopedEnvDouble(env_prefix_, "LOCAL_FIT_BLEND", local_fit_blend_default_);
                 const double local_fit_reject_positive_phi = GetScopedEnvDouble(
                     env_prefix_, "LOCAL_FIT_REJECT_POSITIVE_PHI", local_fit_reject_positive_phi_default_);
+                const double onset_gate_current_phi_max = GetScopedEnvDouble(
+                    env_prefix_, "ONSET_GATE_CURRENT_PHI_MAX", onset_gate_current_phi_max_default_);
+                const int single_point_local_fit_path_samples = std::max(
+                    0, GetScopedEnvInt(env_prefix_, "SINGLE_POINT_LOCAL_FIT_PATH_SAMPLES",
+                                       single_point_local_fit_path_samples_default_));
+                const double single_point_local_fit_backtrack_scale = GetScopedEnvDouble(
+                    env_prefix_, "SINGLE_POINT_LOCAL_FIT_BACKTRACK_SCALE", single_point_local_fit_backtrack_scale_default_);
+
+                if (need_hessian && local_fit_onset_steps > 0 && patch.active_age <= local_fit_onset_steps &&
+                    patch.cluster_size < local_fit_min_cluster_size && single_point_local_fit_path_samples > 1 &&
+                    std::isfinite(step_size) && step_size > 0.0 &&
+                    std::isfinite(single_point_local_fit_backtrack_scale) && single_point_local_fit_backtrack_scale > 0.0) {
+                    const chrono::ChVector3d u_tau_master_M =
+                        master_pred.R_WRef.transpose() * patch.u_tau_pred_W;
+                    const chrono::ChVector3d dx_master_M =
+                        u_tau_master_M * (step_size * single_point_local_fit_backtrack_scale);
+                    if (dx_master_M.Length() > 1.0e-7 && IsFiniteVec(dx_master_M)) {
+                        stats_.local_fit_attempted += 1;
+                        const chrono::ChVector3d start_master_M = patch.x_master_M - dx_master_M;
+                        const chrono::ChVector3d end_master_M = patch.x_master_M;
+                        QuerySweptPatchGeometry(master_pred, sdf, need_hessian, start_master_M, end_master_M, patch.n_W,
+                                                single_point_local_fit_path_samples, patch);
+                        stats_.local_fit_applied += 1;
+                        if (std::isfinite(local_fit_reject_positive_phi) && local_fit_reject_positive_phi >= 0.0 &&
+                            std::isfinite(patch.phi) && patch.phi > local_fit_reject_positive_phi) {
+                            stats_.local_fit_rejected_positive_gap += 1;
+                            patch.cluster_size = 0;
+                            continue;
+                        }
+                    }
+                }
+
+                if (local_fit_onset_steps > 0 && patch.active_age <= local_fit_onset_steps &&
+                    std::isfinite(onset_gate_current_phi_max) && onset_gate_current_phi_max >= 0.0 &&
+                    std::isfinite(patch.phi) && patch.phi > onset_gate_current_phi_max) {
+                    stats_.local_fit_rejected_positive_gap += 1;
+                    patch.cluster_size = 0;
+                    continue;
+                }
 
                 if (need_hessian && local_fit_onset_steps > 0 && patch.active_age <= local_fit_onset_steps &&
                     patch.cluster_size >= local_fit_min_cluster_size && patch_index < patch_member_points.size()) {
+                    stats_.local_fit_attempted += 1;
                     chrono::ChVector3d normal_master_M = patch.grad_M;
                     if (NormalizeOrReject(normal_master_M)) {
                         chrono::ChVector3d fitted_master_M;
@@ -1251,6 +1294,7 @@ void ContactActivation::BuildActiveSet(const RigidBodyStateW& master_pred,
                                                         &predicted_min_phi, fitted_master_M)) {
                             if (std::isfinite(local_fit_reject_positive_phi) && local_fit_reject_positive_phi >= 0.0 &&
                                 std::isfinite(predicted_min_phi) && predicted_min_phi > local_fit_reject_positive_phi) {
+                                stats_.local_fit_rejected_positive_gap += 1;
                                 patch.cluster_size = 0;
                                 continue;
                             }
@@ -1261,6 +1305,7 @@ void ContactActivation::BuildActiveSet(const RigidBodyStateW& master_pred,
                             } else {
                                 QueryPatchGeometry(master_pred, sdf, need_hessian, fitted_master_M, patch.n_W, patch);
                             }
+                            stats_.local_fit_applied += 1;
                         }
                     }
                 }
@@ -1328,4 +1373,3 @@ void ContactActivation::BuildActiveSet(const RigidBodyStateW& master_pred,
 }  // namespace spcc
 }  // namespace backend
 }  // namespace platform
-

@@ -53,6 +53,9 @@ struct ContactActivationTuning {
     double local_fit_max_shift_ratio = 0.5;
     double local_fit_blend = 1.0;
     double local_fit_reject_positive_phi = -1.0;
+    double onset_gate_current_phi_max = -1.0;
+    int single_point_local_fit_path_samples = 0;
+    double single_point_local_fit_backtrack_scale = 1.0;
 };
 
 struct CurvatureGateTuning {
@@ -116,6 +119,9 @@ inline ContactRegimeConfig MakeCamSlidingPatchDefaults() {
     cfg.activation.local_fit_max_shift_ratio = 1.0;
     cfg.activation.local_fit_blend = 1.0;
     cfg.activation.local_fit_reject_positive_phi = 2.5e-3;
+    cfg.activation.onset_gate_current_phi_max = -1.0;
+    cfg.activation.single_point_local_fit_path_samples = 0;
+    cfg.activation.single_point_local_fit_backtrack_scale = 1.0;
     cfg.curvature.enabled = true;
     cfg.curvature.tangential_only = true;
     cfg.curvature.normal_alignment_cos_min = 0.99;
@@ -196,6 +202,9 @@ inline ContactRegimeConfig MakeGearCompactDefaults() {
     cfg.activation.local_fit_max_shift_ratio = 0.5;
     cfg.activation.local_fit_blend = 1.0;
     cfg.activation.local_fit_reject_positive_phi = -1.0;
+    cfg.activation.onset_gate_current_phi_max = -1.0;
+    cfg.activation.single_point_local_fit_path_samples = 0;
+    cfg.activation.single_point_local_fit_backtrack_scale = 1.0;
     return cfg;
 }
 

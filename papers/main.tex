@@ -1,6 +1,5 @@
 \documentclass[12pt,a4paper]{article}
 
-\usepackage[utf8]{inputenc}
 \usepackage{ctex} % 中文支持
 \usepackage{amsmath,amsfonts,amssymb}
 \usepackage{graphicx}
@@ -8,10 +7,21 @@
 \usepackage{hyperref}
 \usepackage{booktabs}
 \usepackage{authblk}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+
+\floatname{algorithm}{算法}
+\algrenewcommand\algorithmicrequire{\textbf{输入:}}
+\algrenewcommand\algorithmicensure{\textbf{输出:}}
+\algrenewcommand\algorithmicif{\textbf{如果}}
+\algrenewcommand\algorithmicthen{\textbf{则}}
+\algrenewcommand\algorithmicelse{\textbf{否则}}
+
+\graphicspath{{figures/}{papers/figures/}}
 
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
 
-\title{\textbf{基于有向距离场高阶曲率感知的非平滑接触动力学方法}}
+\title{\textbf{接触类型感知的高阶 SDF 接触建模与非平滑动力学分析}}
 \author{作者姓名\\ \textit{所属机构/大学}}
 \date{\today}
 
@@ -29,7 +39,7 @@
 \section{相关工作}
 \input{sections/02_related_work.tex}
 
-\section{核心方法：二阶泰勒展开接触模型}
+\section{核心方法：接触类型感知的高阶 SDF 接触模型}
 \input{sections/03_methodology.tex}
 
 \section{系统实现}

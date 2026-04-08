@@ -44,6 +44,9 @@ class ContactActivation {
         std::size_t accepted_before_cap = 0;
         std::size_t accepted_after_cap = 0;
         std::size_t rejected_invalid = 0;
+        std::size_t local_fit_attempted = 0;
+        std::size_t local_fit_applied = 0;
+        std::size_t local_fit_rejected_positive_gap = 0;
     };
 
     void SetEnvPrefix(const std::string& env_prefix);
@@ -127,6 +130,9 @@ class ContactActivation {
     double local_fit_max_shift_ratio_default_ = 0.5;
     double local_fit_blend_default_ = 1.0;
     double local_fit_reject_positive_phi_default_ = -1.0;
+    double onset_gate_current_phi_max_default_ = -1.0;
+    int single_point_local_fit_path_samples_default_ = 0;
+    double single_point_local_fit_backtrack_scale_default_ = 1.0;
     bool curvature_gate_enabled_ = false;
     bool curvature_tangential_only_default_ = false;
     double normal_alignment_cos_min_default_ = -1.0;

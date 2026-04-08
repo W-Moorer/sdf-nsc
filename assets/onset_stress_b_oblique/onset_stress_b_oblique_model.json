@@ -26,17 +26,19 @@
   "total_time": 0.45,
   "target_onset_time": 0.15,
   "dynamics_substeps": 32,
+  "follower_x_offset": 0.012,
+  "variant": "oblique_onset",
   "follower_init_pos": [
-    0.0,
-    0.04136029035991934,
+    0.012,
+    0.03762804425616678,
     0.0
   ],
   "preload_anchor_pos": [
-    0.0,
+    0.012,
     0.0,
     0.0
   ],
-  "preload_rest_length": 0.04136029035991934,
+  "preload_rest_length": 0.03762804425616678,
   "preload_stiffness": 670.0,
   "preload_damping": 47.0
 }

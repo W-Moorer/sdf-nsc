@@ -1,0 +1,211 @@
+\begin{thebibliography}{10}
+
+\bibitem{ainsley2012spacm}
+Samantha Ainsley, Etienne Vouga, Eitan Grinspun, and Rasmus Tamstorf.
+\newblock Speculative parallel asynchronous contact mechanics.
+\newblock {\em ACM Transactions on Graphics}, 31(6):151:1--151:8, 2012.
+
+\bibitem{anitescu2004constraint}
+Mihai Anitescu and Gary~D. Hart.
+\newblock A constraint-stabilized time-stepping approach for rigid multibody
+  dynamics with joints, contact, and friction.
+\newblock {\em International Journal for Numerical Methods in Engineering},
+  60(14):2335--2371, 2004.
+
+\bibitem{anitescu1997formulating}
+Mihai Anitescu and Florian~A. Potra.
+\newblock Formulating dynamic multi-rigid-body contact problems with friction
+  as solvable linear complementarity problems.
+\newblock {\em Nonlinear Dynamics}, 14(3):231--247, 1997.
+
+\bibitem{anitescu2010iterative}
+Mihai Anitescu and Alessandro Tasora.
+\newblock An iterative approach for cone complementarity problems for nonsmooth
+  dynamics.
+\newblock {\em Computational Optimization and Applications}, 47(2):207--235,
+  2010.
+
+\bibitem{baraff1989analytical}
+David Baraff.
+\newblock Analytical methods for dynamic simulation of non-penetrating rigid
+  bodies.
+\newblock {\em Computer Graphics}, 23(3):223--232, 1989.
+
+\bibitem{baraff1994fast}
+David Baraff.
+\newblock Fast contact force computation for nonpenetrating rigid bodies.
+\newblock In {\em Proceedings of the 21st Annual Conference on Computer
+  Graphics and Interactive Techniques}, pages 23--34, 1994.
+
+\bibitem{baumgarte1972stabilization}
+J.~Baumgarte.
+\newblock Stabilization of constraints and integrals of motion in dynamical
+  systems.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  1(1):1--16, 1972.
+
+\bibitem{bridson2002robust}
+Robert Bridson, John Anderson, and Ronald Fedkiw.
+\newblock Robust treatment of collisions, contact and friction for cloth
+  animation.
+\newblock {\em ACM Transactions on Graphics}, 21(3):594--603, 2002.
+
+\bibitem{xu2014polygonsoup}
+Michael Davies, Vinicius da~Silva, and Eugene Zhang.
+\newblock Signed distance fields for polygon soup meshes.
+\newblock In {\em Graphics Interface 2014}, pages 201--208, 2014.
+
+\bibitem{francu2017solids}
+Mihai Fr{\^a}ncu and Florica Moldoveanu.
+\newblock Position based simulation of solids with accurate contact handling.
+\newblock {\em Computers \& Graphics}, 69:12--23, 2017.
+
+\bibitem{frisken2000adf}
+Sarah~F. Frisken, Ronald~N. Perry, Alyn~P. Rockwood, and Thouis~R. Jones.
+\newblock Adaptively sampled distance fields: A general representation of shape
+  for computer graphics.
+\newblock In {\em Proceedings of the 27th Annual Conference on Computer
+  Graphics and Interactive Techniques}, pages 249--254, 2000.
+
+\bibitem{gilbert1988fast}
+Elmer~G. Gilbert, Daniel~W. Johnson, and S.~S. Keerthi.
+\newblock A fast procedure for computing the distance between complex objects
+  in three-dimensional space.
+\newblock {\em IEEE Journal of Robotics and Automation}, 4(2):193--203, 1988.
+
+\bibitem{harmon2009acm}
+David Harmon, Etienne Vouga, Breannan Smith, Rasmus Tamstorf, and Eitan
+  Grinspun.
+\newblock Asynchronous contact mechanics.
+\newblock {\em ACM Transactions on Graphics}, 28(3):87:1--87:12, 2009.
+
+\bibitem{hart1996sphere}
+John~C. Hart.
+\newblock Sphere tracing: A geometric method for the antialiased ray tracing of
+  implicit surfaces.
+\newblock {\em The Visual Computer}, 12(10):527--545, 1996.
+
+\bibitem{jean1999nonsmooth}
+Michel Jean.
+\newblock The non-smooth contact dynamics method.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  177(3--4):235--257, 1999.
+
+\bibitem{lai2024unifying}
+Yu~Lai and Jidong Zhao.
+\newblock Unifying the contact in signed distance field-based and conventional
+  discrete element methods.
+\newblock {\em Computers and Geotechnics}, 176:106764, 2024.
+
+\bibitem{larsson2006dbvh}
+Thomas Larsson and Tomas Akenine-M{\"o}ller.
+\newblock A dynamic bounding volume hierarchy for generalized collision
+  detection.
+\newblock {\em Computers \& Graphics}, 30(3):450--459, 2006.
+
+\bibitem{li2020ipc}
+Minchen Li, Zachary Ferguson, Teseo Schneider, Timothy~R. Langlois, Denis
+  Zorin, Daniele Panozzo, Chenfanfu Jiang, and Danny~M. Kaufman.
+\newblock Incremental potential contact: Intersection- and inversion-free,
+  large deformation dynamics.
+\newblock {\em ACM Transactions on Graphics}, 39(4):49:1--49:15, 2020.
+
+\bibitem{macklin2020sdfcollision}
+Miles Macklin, Kenny Erleben, Matthias M{\"u}ller, and Nuttapong Chentanez.
+\newblock Local optimization for robust signed distance field collision.
+\newblock {\em Proceedings of the ACM on Computer Graphics and Interactive
+  Techniques}, 3(1):8:1--8:17, 2020.
+
+\bibitem{macklin2016xpbd}
+Miles Macklin, Matthias M{\"u}ller, and Nuttapong Chentanez.
+\newblock {XPBD}: Position-based simulation of compliant constrained dynamics.
+\newblock In {\em Proceedings of the 9th International Conference on Motion in
+  Games}, pages 49--54, 2016.
+
+\bibitem{macklin2019smallsteps}
+Miles Macklin, Kier Storey, Michelle Lu, Pierre Terdiman, Nuttapong Chentanez,
+  Stefan Jeschke, and Matthias M{\"u}ller.
+\newblock Small steps in physics simulation.
+\newblock In {\em Proceedings of the ACM SIGGRAPH/Eurographics Symposium on
+  Computer Animation}, pages 1--7, 2019.
+
+\bibitem{mazhar2013chrono}
+Hammad Mazhar, Timo Heyn, Arman Pazouki, Daniel Melanz, Andreas Seidl, Adam
+  Bartholomew, Alessandro Tasora, and Dan Negrut.
+\newblock {CHRONO}: A parallel multi-physics library for rigid-body,
+  flexible-body, and fluid dynamics.
+\newblock {\em Mechanical Sciences}, 4:49--64, 2013.
+
+\bibitem{melanz2017comparison}
+Daniel Melanz, Luning Fang, and Dan Negrut.
+\newblock A comparison of numerical methods for solving multibody dynamics
+  problems with frictional contact modeled via differential variational
+  inequalities.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  320:668--693, 2017.
+
+\bibitem{muller2007pbd}
+Matthias M{\"u}ller, Bruno Heidelberger, Marcus Hennix, and John Ratcliff.
+\newblock Position based dynamics.
+\newblock {\em Journal of Visual Communication and Image Representation},
+  18(2):109--118, 2007.
+
+\bibitem{museth2013vdb}
+Ken Museth.
+\newblock {VDB}: High-resolution sparse volumes with dynamic topology.
+\newblock {\em ACM Transactions on Graphics}, 32(3):27:1--27:22, 2013.
+
+\bibitem{museth2021nanovdb}
+Ken Museth.
+\newblock {NanoVDB}: A {GPU}-friendly and portable {VDB} data structure for
+  real-time rendering and simulation.
+\newblock In {\em ACM SIGGRAPH 2021 Talks}, pages 1:1--1:2, 2021.
+
+\bibitem{pazouki2017compliant}
+Arman Pazouki, Micha{\l} Kwarta, Kyle Williams, William Likos, Radu Serban,
+  Paramsothy Jayakumar, and Dan Negrut.
+\newblock Compliant contact versus rigid contact: A comparison in the context
+  of granular dynamics.
+\newblock {\em Physical Review E}, 96(4):042905, 2017.
+
+\bibitem{pfeiffer2012nonsmooth}
+Friedrich Pfeiffer.
+\newblock On non-smooth multibody dynamics.
+\newblock {\em Proceedings of the Institution of Mechanical Engineers, Part K:
+  Journal of Multi-body Dynamics}, 226(2):147--177, 2012.
+
+\bibitem{stewart1996implicit}
+David~E. Stewart and Jeffrey~C. Trinkle.
+\newblock An implicit time-stepping scheme for rigid body dynamics with
+  inelastic collisions and {C}oulomb friction.
+\newblock {\em International Journal for Numerical Methods in Engineering},
+  39(15):2673--2691, 1996.
+
+\bibitem{tasora2011matrixfree}
+Alessandro Tasora, Dan Negrut, and Mihai Anitescu.
+\newblock A matrix-free cone complementarity approach for solving large-scale,
+  nonsmooth, rigid body dynamics.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  200(5--8):439--453, 2011.
+
+\bibitem{teschner2005collision}
+Matthias Teschner, Sebastian Kimmerle, Bruno Heidelberger, Gabriel Zachmann,
+  Laxman Raghupathi, Arnulph Fuhrmann, Marie-Paule Cani, Fran{\c{c}}ois Faure,
+  Nadia Magnenat-Thalmann, Wolfgang Strasser, and Pascal Volino.
+\newblock Collision detection for deformable objects.
+\newblock {\em Computer Graphics Forum}, 24(1):61--81, 2005.
+
+\bibitem{vouga2011avcm}
+Etienne Vouga, David Harmon, Rasmus Tamstorf, and Eitan Grinspun.
+\newblock Asynchronous variational contact mechanics.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  200(25--28):2181--2194, 2011.
+
+\bibitem{xu2014ccdpointsdf}
+Hongyi Xu and Jernej Barbi\v{c}.
+\newblock Continuous collision detection between points and signed distance
+  fields.
+\newblock In {\em Workshop on Virtual Reality Interaction and Physical
+  Simulation ({VRIPHYS})}, 2014.
+
+\end{thebibliography}

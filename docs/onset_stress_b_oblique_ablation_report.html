@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Oblique Onset Stress B Ablation</title>
+  <style>
+    body {
+      font-family: "Times New Roman", Times, serif;
+      margin: 24px auto;
+      max-width: 1120px;
+      line-height: 1.45;
+      color: #111;
+      padding: 0 18px 40px;
+      background: #faf8f3;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    p { margin: 8px 0 16px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      margin: 14px 0 24px;
+    }
+    th, td {
+      border: 1px solid #d9d1c3;
+      padding: 8px 10px;
+      text-align: right;
+    }
+    th:first-child, td:first-child { text-align: left; }
+    .fig {
+      background: white;
+      border: 1px solid #ddd6c8;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 0 0 18px;
+    }
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.92em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Oblique Onset Stress B: Mechanism Ablation</h1>
+  <p>
+    This report compares the default second-order SDF configuration against two mechanism ablations on the same
+    oblique-onset geometry: removing the positive-gap onset gate and removing the local-fit path correction. The
+    current operating point is intentionally kept aligned with the existing Version B solver defaults; therefore the
+    benchmark is used to confirm that the oblique onset genuinely exercises local-fit logic, even if the net trajectory
+    difference remains small under this smooth single-roller geometry.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Runtime (s)</th>
+        <th>Vel RMSE (m/s)</th>
+        <th>Vel Max Abs (m/s)</th>
+        <th>Onset-window Vel RMSE (m/s)</th>
+        <th>Onset-window Vel Max Abs (m/s)</th>
+        <th>Detected motion onset (s)</th>
+        <th>Max fit attempted</th>
+        <th>Max fit applied</th>
+        <th>Max positive-gap reject</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>SDF 2nd-order</td><td>114.264</td><td>0.001022</td><td>0.013218</td><td>0.001547</td><td>0.013218</td><td>0.151</td><td>4</td><td>4</td><td>0</td></tr><tr><td>SDF 2nd-order without onset gate</td><td>115.424</td><td>0.001022</td><td>0.013218</td><td>0.001547</td><td>0.013218</td><td>0.151</td><td>4</td><td>4</td><td>0</td></tr><tr><td>SDF 2nd-order without local fit</td><td>115.098</td><td>0.001022</td><td>0.013218</td><td>0.001547</td><td>0.013218</td><td>0.151</td><td>0</td><td>0</td><td>0</td></tr>
+    </tbody>
+  </table>
+  <div class="fig">
+    <h2>Velocity Comparison</h2>
+    <img src="figures/onset_stress_b_oblique_ablation_velocity.png" alt="Oblique onset ablation velocity" />
+  </div>
+  <h2>First Nonzero Debug Lines</h2>
+  <ul>
+    <li><strong>SDF 2nd-order</strong>: <code>[SDF] Step 3870 active contacts: 1 queried=12000 after_cap=1 fit_attempted=4 fit_applied=4 fit_reject=0</code></li><li><strong>SDF 2nd-order without onset gate</strong>: <code>[SDF] Step 3870 active contacts: 1 queried=12000 after_cap=1 fit_attempted=4 fit_applied=4 fit_reject=0</code></li><li><strong>SDF 2nd-order without local fit</strong>: <code>none</code></li>
+  </ul>
+</body>
+</html>

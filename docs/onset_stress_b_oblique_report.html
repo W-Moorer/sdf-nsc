@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Onset Stress Benchmark Version B</title>
+  <title>Onset Stress Benchmark Version B Oblique Variant</title>
   <style>
     body {
       font-family: "Times New Roman", Times, serif;
@@ -51,37 +51,44 @@
       height: auto;
       display: block;
     }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.92em;
+    }
   </style>
 </head>
 <body>
-  <h1>Onset Stress Case (Version B)</h1>
+  <h1>Onset Stress Case (Version B, Oblique Variant)</h1>
   <p>
-    Version B adds a weak follower return spring-damper so that, after first contact, the roller remains close to the
-    cam envelope instead of flying ballistically. This is the benchmark intended to validate post-onset sustained
-    sliding against the same piecewise analytic reference used in version A.
+    This variant offsets the roller laterally before first contact so that the onset is established on the cam flank
+    rather than on the symmetry axis. The goal is to create a clean benchmark in which onset gate and local-fit logic
+    operate under coupled normal approach and tangential slip, while preserving the same smooth geometry and weak
+    follower preload used in the vertical Version B benchmark.
   </p>
   <div class="cards">
     <div class="card">
       <h2>Geometry</h2>
       <p>Cam radius: 0.030 m<br/>
       Eccentricity: 0.006 m<br/>
-      Roller radius: 0.010 m</p>
+      Roller radius: 0.010 m<br/>
+      Follower X offset: 0.012 m</p>
     </div>
     <div class="card">
       <h2>Spring-Damper</h2>
-      <p>Anchor Y: 0.000000 m<br/>
-      Rest length: 0.041360 m<br/>
+      <p>Anchor X: 0.012 m<br/>
+      Rest length: 0.037628 m<br/>
       Stiffness: 670.0 N/m<br/>
       Damping: 47.0 Ns/m</p>
     </div>
     <div class="card">
-      <h2>Setup</h2>
-      <p>Motor speed: -2.000 rad/s<br/>
-      Step size: 0.0010 s<br/>
-      Total time: 0.450 s<br/>
-      Reference onset: 0.15 s</p>
+      <h2>Probe Evidence</h2>
+      <p>Nonzero local-fit lines: 3<br/>
+      Max attempted: 4<br/>
+      Max applied: 4<br/>
+      Max rejected positive-gap: 0</p>
     </div>
   </div>
+  <p><strong>First nonzero debug line:</strong> <code>[SDF] Step 3870 active contacts: 1 queried=12000 after_cap=1 fit_attempted=4 fit_applied=4 fit_reject=0</code></p>
   <table>
     <thead>
       <tr>
@@ -95,16 +102,16 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>Chrono NSC native mesh</td><td>82.458</td><td>0.000003</td><td>0.000859</td><td>0.000885</td><td>0.009924</td><td>0.15</td></tr><tr><td>SDF 1st-order</td><td>58.285</td><td>0.000004</td><td>0.000843</td><td>0.000784</td><td>0.011978</td><td>0.151</td></tr><tr><td>SDF 2nd-order</td><td>58.466</td><td>0.000004</td><td>0.000841</td><td>0.000782</td><td>0.011978</td><td>0.151</td></tr>
+      <tr><td>Chrono NSC native mesh</td><td>85.683</td><td>0.000003</td><td>0.001044</td><td>0.001033</td><td>0.013218</td><td>0.151</td></tr><tr><td>SDF 1st-order</td><td>108.887</td><td>0.000005</td><td>0.001027</td><td>0.001010</td><td>0.013218</td><td>0.151</td></tr><tr><td>SDF 2nd-order</td><td>109.269</td><td>0.000005</td><td>0.001022</td><td>0.001009</td><td>0.013218</td><td>0.151</td></tr>
     </tbody>
   </table>
   <div class="fig">
     <h2>Position</h2>
-    <img src="figures/onset_stress_b_position.png" alt="Onset stress B position" />
+    <img src="figures/onset_stress_b_oblique_position.png" alt="Oblique onset stress B position" />
   </div>
   <div class="fig">
     <h2>Velocity</h2>
-    <img src="figures/onset_stress_b_velocity.png" alt="Onset stress B velocity" />
+    <img src="figures/onset_stress_b_oblique_velocity.png" alt="Oblique onset stress B velocity" />
   </div>
 </body>
 </html>

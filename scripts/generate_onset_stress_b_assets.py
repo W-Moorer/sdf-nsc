@@ -115,8 +115,8 @@ def main():
     params["follower_init_pos"] = [0.0, onset_y, 0.0]
     params["preload_anchor_pos"] = [0.0, 0.0, 0.0]
     params["preload_rest_length"] = onset_y
-    params["preload_stiffness"] = 680.0
-    params["preload_damping"] = 50.0
+    params["preload_stiffness"] = 670.0
+    params["preload_damping"] = 47.0
 
     write_obj(MODEL_DIR / "onset_cam.obj", cam_vertices, cam_faces)
     write_obj(MODEL_DIR / "roller_follower.obj", roller_vertices, roller_faces)

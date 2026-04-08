@@ -321,7 +321,17 @@ public:
         
         static int step_id = 0;
         if (step_id % 10 == 0) {
-             std::cout << "[SDF] Step " << step_id << " active contacts: " << penetration_count << std::endl;
+             std::cout << "[SDF] Step " << step_id << " active contacts: " << penetration_count;
+#if defined(SPCC_ENABLE_VDB)
+             if (GetEnvDouble("SPCC_DEBUG_CONTACT_STATS", 0.0) > 0.5) {
+                 const auto& stats = m_activation->GetStats();
+                 std::cout << " queried=" << stats.queried << " after_cap=" << stats.accepted_after_cap
+                           << " fit_attempted=" << stats.local_fit_attempted
+                           << " fit_applied=" << stats.local_fit_applied
+                           << " fit_reject=" << stats.local_fit_rejected_positive_gap;
+             }
+#endif
+             std::cout << std::endl;
         }
         step_id++;
     }

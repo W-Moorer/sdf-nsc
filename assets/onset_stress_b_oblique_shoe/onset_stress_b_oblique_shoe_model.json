@@ -2,10 +2,12 @@
   "cam_radius": 0.03,
   "cam_eccentricity": 0.006,
   "cam_thickness": 0.02,
-  "roller_radius": 0.01,
-  "roller_thickness": 0.018,
+  "shoe_half_width": 0.02,
+  "shoe_half_height": 0.01,
+  "shoe_corner_radius": 0.004,
+  "shoe_thickness": 0.018,
   "cam_segments": 160,
-  "roller_segments": 128,
+  "shoe_arc_segments": 48,
   "phase": 3.141592653589793,
   "cam_init_pos": [
     0.0,
@@ -23,20 +25,22 @@
   "restitution": 0.0,
   "motor_speed": -2.0,
   "step_size": 0.001,
-  "total_time": 0.45,
+  "total_time": 0.25,
   "target_onset_time": 0.15,
-  "dynamics_substeps": 32,
+  "dynamics_substeps": 8,
+  "follower_x_offset": 0.012,
+  "variant": "oblique_shoe",
   "follower_init_pos": [
-    0.0,
-    0.04136029035991934,
+    0.012,
+    0.04137868782646382,
     0.0
   ],
   "preload_anchor_pos": [
-    0.0,
+    0.012,
     0.0,
     0.0
   ],
-  "preload_rest_length": 0.04136029035991934,
+  "preload_rest_length": 0.04137868782646382,
   "preload_stiffness": 670.0,
   "preload_damping": 47.0
 }

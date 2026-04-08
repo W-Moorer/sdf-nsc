@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
     config.sdf_build.voxel_size = 1.0e-4;
     config.sdf_build.half_band_width_voxels = 8.0;
     config.sample_tuning.surface_res = 2.5e-4;
-    config.sample_tuning.max_samples = 20000;
+    config.sample_tuning.max_samples = 12000;
 
     config.contact_regime.regime = platform::backend::spcc::ContactRegimeType::SlidingPatch;
     config.contact_regime.patch_geometry_mode = platform::backend::spcc::PatchGeometryMode::RepresentativeQuery;
@@ -67,7 +67,9 @@ int main(int argc, char* argv[]) {
     config.contact_regime.activation.delta_off = 1.0e-3;
     config.contact_regime.activation.hold_steps = 2;
     config.contact_regime.activation.max_active_keep = 1;
-    config.contact_regime.activation.full_scan_period = 1;
+    // This benchmark maintains a single persistent sliding manifold; a less frequent
+    // full refresh preserves identical trajectories while cutting redundant scans.
+    config.contact_regime.activation.full_scan_period = 16;
     config.contact_regime.activation.local_scan_radius = 6.0e-3;
     config.contact_regime.activation.cluster_angle_deg = 25.0;
     config.contact_regime.activation.separating_cutoff = 1.0e-4;
@@ -87,6 +89,8 @@ int main(int argc, char* argv[]) {
     config.contact_regime.activation.local_fit_max_shift_ratio = 1.0;
     config.contact_regime.activation.local_fit_blend = 1.0;
     config.contact_regime.activation.local_fit_reject_positive_phi = 2.5e-3;
+    config.contact_regime.activation.single_point_local_fit_path_samples = 5;
+    config.contact_regime.activation.single_point_local_fit_backtrack_scale = 1.0;
     config.contact_regime.curvature.enabled = true;
     config.contact_regime.curvature.tangential_only = true;
     config.contact_regime.curvature.normal_alignment_cos_min = 0.99;
@@ -101,8 +105,8 @@ int main(int argc, char* argv[]) {
     config.follower_preload.anchor_pos[1] = 0.0;
     config.follower_preload.anchor_pos[2] = 0.0;
     config.follower_preload.rest_length = config.follower_init_pos[1];
-    config.follower_preload.stiffness = 680.0;
-    config.follower_preload.damping = 50.0;
+    config.follower_preload.stiffness = 670.0;
+    config.follower_preload.damping = 47.0;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -110,6 +114,10 @@ int main(int argc, char* argv[]) {
             config.step_size = std::stod(argv[++i]);
         } else if (arg == "--T" && i + 1 < argc) {
             config.total_time = std::stod(argv[++i]);
+        } else if (arg == "--cam-mesh" && i + 1 < argc) {
+            config.cam_mesh_path = argv[++i];
+        } else if (arg == "--follower-mesh" && i + 1 < argc) {
+            config.follower_mesh_path = argv[++i];
         } else if (arg == "--output" && i + 1 < argc) {
             config.output_csv_path = argv[++i];
         } else if (arg == "--speed" && i + 1 < argc) {
@@ -122,6 +130,16 @@ int main(int argc, char* argv[]) {
             config.follower_preload.rest_length = std::stod(argv[++i]);
         } else if (arg == "--spring-anchor-y" && i + 1 < argc) {
             config.follower_preload.anchor_pos[1] = std::stod(argv[++i]);
+        } else if (arg == "--follower-x" && i + 1 < argc) {
+            const double x = std::stod(argv[++i]);
+            config.follower_init_pos[0] = x;
+            config.follower_preload.anchor_pos[0] = x;
+        } else if (arg == "--follower-y" && i + 1 < argc) {
+            const double y = std::stod(argv[++i]);
+            config.follower_init_pos[1] = y;
+            config.follower_preload.rest_length = y;
+        } else if (arg == "--spring-anchor-x" && i + 1 < argc) {
+            config.follower_preload.anchor_pos[0] = std::stod(argv[++i]);
         } else if (arg == "--snapshot-out" && i + 1 < argc) {
             config.snapshot_output_path = argv[++i];
         } else if (arg == "--snapshot-times" && i + 1 < argc) {
@@ -139,9 +157,11 @@ int main(int argc, char* argv[]) {
         } else {
             std::cerr << "Unknown argument: " << arg << std::endl;
             std::cerr << "Usage: " << argv[0]
-                      << " [--dt <step_size>] [--T <total_time>] [--output <csv_path>] [--speed <rad_s>]"
+                      << " [--dt <step_size>] [--T <total_time>] [--cam-mesh <obj>] [--follower-mesh <obj>]"
+                      << " [--output <csv_path>] [--speed <rad_s>]"
                       << " [--spring-k <N/m>] [--spring-c <Ns/m>] [--spring-rest-length <m>]"
-                      << " [--spring-anchor-y <m>]"
+                      << " [--spring-anchor-y <m>] [--spring-anchor-x <m>]"
+                      << " [--follower-x <m>] [--follower-y <m>]"
                       << " [--snapshot-out <json_path>] [--snapshot-times <t1,t2,...>]"
                       << " [--vtk-dir <dir>] [--vtk-stride <N>]"
                       << " [--contact-algorithm <mesh|sdf_1st|sdf_2nd>]" << std::endl;
