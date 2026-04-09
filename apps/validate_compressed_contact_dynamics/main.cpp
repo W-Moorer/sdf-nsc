@@ -249,6 +249,9 @@ CompressedContactConfig MakeDynamicConfig() {
     cfg.warm_start_match_radius = 6.0e-3;
     cfg.temporal_load_regularization = 1.0e-6;
     cfg.temporal_reference_blend = 0.05;
+    cfg.temporal_force_transport_blend = 0.7;
+    cfg.temporal_slip_velocity_scale = 0.12;
+    cfg.temporal_separation_velocity_scale = 0.04;
     cfg.max_wrench_error = 0.08;
     cfg.max_cop_error = 2.5e-3;
     cfg.max_gap_error = 0.05;
