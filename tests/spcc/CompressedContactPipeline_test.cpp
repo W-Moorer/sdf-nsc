@@ -195,3 +195,44 @@ TEST(CompressedContactPipelineTest, SplitsLongStripIntoMultipleSubpatches) {
     EXPECT_GT(stats.subpatch_count, 1u);
     EXPECT_GT(stats.reduced_count, 4u);
 }
+
+TEST(CompressedContactPipelineTest, KeepsChainConnectedContactRegionAsSinglePatch) {
+    platform::backend::spcc::CompressedContactPipeline pipeline;
+    platform::backend::spcc::CompressedContactConfig cfg;
+    cfg.delta_on = 0.02;
+    cfg.delta_off = 0.03;
+    cfg.max_active_dense = 0;
+    cfg.patch_radius = 0.06;
+    cfg.normal_cos_min = 0.95;
+    cfg.max_patch_diameter = 0.0;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
+    cfg.max_reduced_points_per_patch = 4;
+    pipeline.Configure(cfg);
+
+    std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
+    for (int ix = 0; ix < 4; ++ix) {
+        platform::backend::spcc::DenseSurfaceSample sample;
+        sample.xi_slave_S = chrono::ChVector3d(0.05 * ix, -0.01, 0.0);
+        sample.normal_slave_S = chrono::ChVector3d(0.0, 1.0, 0.0);
+        sample.area_weight = 1.0;
+        samples.push_back(sample);
+    }
+    pipeline.SetSlaveSurfaceSamples(samples);
+
+    PlaneSDF sdf;
+    const auto master_state = MakeIdentityState();
+    const auto slave_state = MakeIdentityState();
+
+    std::vector<platform::backend::spcc::ReducedContactPoint> reduced;
+    platform::backend::spcc::CompressionStats stats;
+    pipeline.BuildReducedContacts(master_state, slave_state, sdf, 0.2, 1.0e-3, reduced, &stats);
+
+    ASSERT_FALSE(reduced.empty());
+    EXPECT_EQ(stats.patch_count, 1u);
+    EXPECT_EQ(stats.subpatch_count, 1u);
+}

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <queue>
+#include <unordered_map>
 
 namespace platform {
 namespace backend {
@@ -33,6 +35,101 @@ double TangentialDistance(const chrono::ChVector3d& a_W,
     const chrono::ChVector3d rel = a_W - b_W;
     const chrono::ChVector3d tangential = rel - chrono::Vdot(rel, n_W) * n_W;
     return tangential.Length();
+}
+
+DensePatch MakePatchGeometry(const std::vector<DenseContactPoint>& dense_points,
+                             std::size_t patch_id,
+                             std::vector<std::size_t> members) {
+    DensePatch patch;
+    patch.patch_id = patch_id;
+    patch.members = std::move(members);
+    if (patch.members.empty()) {
+        return patch;
+    }
+
+    chrono::ChVector3d centroid_W(0.0, 0.0, 0.0);
+    chrono::ChVector3d avg_normal_W(0.0, 0.0, 0.0);
+    double weight_sum = 0.0;
+    for (const auto member_index : patch.members) {
+        const auto& point = dense_points[member_index];
+        const double weight = std::max(1.0e-12, point.area_weight);
+        centroid_W += weight * point.x_W;
+        avg_normal_W += weight * point.n_W;
+        weight_sum += weight;
+    }
+
+    if (weight_sum > 1.0e-12) {
+        centroid_W *= (1.0 / weight_sum);
+    } else {
+        centroid_W = dense_points[patch.members.front()].x_W;
+    }
+
+    patch.centroid_W = centroid_W;
+    patch.avg_normal_W = SafeNormalized(avg_normal_W, dense_points[patch.members.front()].n_W);
+    BuildOrthonormalBasis(patch.avg_normal_W, patch.t1_W, patch.t2_W);
+    return patch;
+}
+
+struct GridKey {
+    int x = 0;
+    int y = 0;
+    int z = 0;
+
+    bool operator==(const GridKey& other) const {
+        return x == other.x && y == other.y && z == other.z;
+    }
+};
+
+struct GridKeyHash {
+    std::size_t operator()(const GridKey& key) const {
+        std::size_t seed = 1469598103934665603ull;
+        seed ^= static_cast<std::size_t>(key.x + 0x9e3779b9);
+        seed *= 1099511628211ull;
+        seed ^= static_cast<std::size_t>(key.y + 0x9e3779b9);
+        seed *= 1099511628211ull;
+        seed ^= static_cast<std::size_t>(key.z + 0x9e3779b9);
+        seed *= 1099511628211ull;
+        return seed;
+    }
+};
+
+double PatchAdjacencyRadius(const CompressedContactConfig& cfg) {
+    if (cfg.patch_radius > 0.0) {
+        return cfg.patch_radius;
+    }
+    if (cfg.max_patch_diameter > 0.0) {
+        return cfg.max_patch_diameter;
+    }
+    return 0.0;
+}
+
+GridKey MakeGridKey(const chrono::ChVector3d& x_W, double cell_size) {
+    return GridKey{static_cast<int>(std::floor(x_W.x() / cell_size)),
+                   static_cast<int>(std::floor(x_W.y() / cell_size)),
+                   static_cast<int>(std::floor(x_W.z() / cell_size))};
+}
+
+bool ArePatchAdjacent(const DenseContactPoint& a,
+                      const DenseContactPoint& b,
+                      const CompressedContactConfig& cfg,
+                      double adjacency_radius) {
+    if (chrono::Vdot(a.n_W, b.n_W) < cfg.normal_cos_min) {
+        return false;
+    }
+
+    if (adjacency_radius <= 0.0) {
+        return true;
+    }
+
+    chrono::ChVector3d avg_normal = SafeNormalized(a.n_W + b.n_W, a.n_W);
+    const double tangential = TangentialDistance(a.x_W, b.x_W, avg_normal);
+    if (tangential > adjacency_radius) {
+        return false;
+    }
+
+    // Guard against linking points that are close tangentially but far apart along the surface normal.
+    const double normal_sep = std::abs(chrono::Vdot(a.x_W - b.x_W, avg_normal));
+    return normal_sep <= std::max(cfg.delta_off, cfg.delta_on) + adjacency_radius;
 }
 
 DenseSubpatch MakeSubpatchGeometry(const std::vector<DenseContactPoint>& dense_points,
@@ -234,52 +331,71 @@ void SubpatchRefiner::BuildPatches(const std::vector<DenseContactPoint>& dense_p
                                    const CompressedContactConfig& cfg,
                                    std::vector<DensePatch>& out_patches) {
     out_patches.clear();
+    if (dense_points.empty()) {
+        return;
+    }
 
-    for (std::size_t point_index = 0; point_index < dense_points.size(); ++point_index) {
-        const auto& point = dense_points[point_index];
-        bool assigned = false;
-        for (auto& patch : out_patches) {
-            const chrono::ChVector3d avg_normal = SafeNormalized(patch.avg_normal_W, point.n_W);
-            if (chrono::Vdot(point.n_W, avg_normal) < cfg.normal_cos_min) {
-                continue;
-            }
+    const double adjacency_radius = PatchAdjacencyRadius(cfg);
+    if (!(adjacency_radius > 0.0)) {
+        std::vector<std::size_t> members(dense_points.size());
+        for (std::size_t i = 0; i < dense_points.size(); ++i) {
+            members[i] = i;
+        }
+        out_patches.push_back(MakePatchGeometry(dense_points, 0, std::move(members)));
+        return;
+    }
 
-            const double distance = (point.x_W - patch.centroid_W).Length();
-            if (cfg.patch_radius > 0.0 && distance > cfg.patch_radius) {
-                continue;
-            }
+    std::unordered_map<GridKey, std::vector<std::size_t>, GridKeyHash> grid;
+    grid.reserve(dense_points.size());
+    for (std::size_t i = 0; i < dense_points.size(); ++i) {
+        grid[MakeGridKey(dense_points[i].x_W, adjacency_radius)].push_back(i);
+    }
 
-            if (cfg.max_patch_diameter > 0.0) {
-                bool too_far = false;
-                for (const auto member_index : patch.members) {
-                    if ((dense_points[member_index].x_W - point.x_W).Length() > cfg.max_patch_diameter) {
-                        too_far = true;
-                        break;
+    std::vector<char> visited(dense_points.size(), 0);
+
+    for (std::size_t seed_index = 0; seed_index < dense_points.size(); ++seed_index) {
+        if (visited[seed_index]) {
+            continue;
+        }
+
+        std::vector<std::size_t> members;
+        std::queue<std::size_t> frontier;
+        frontier.push(seed_index);
+        visited[seed_index] = 1;
+
+        while (!frontier.empty()) {
+            const std::size_t point_index = frontier.front();
+            frontier.pop();
+            members.push_back(point_index);
+
+            const auto base_key = MakeGridKey(dense_points[point_index].x_W, adjacency_radius);
+            for (int dx = -1; dx <= 1; ++dx) {
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dz = -1; dz <= 1; ++dz) {
+                        const GridKey neighbor_key{base_key.x + dx, base_key.y + dy, base_key.z + dz};
+                        const auto it = grid.find(neighbor_key);
+                        if (it == grid.end()) {
+                            continue;
+                        }
+
+                        for (const auto neighbor_index : it->second) {
+                            if (visited[neighbor_index] || neighbor_index == point_index) {
+                                continue;
+                            }
+                            if (!ArePatchAdjacent(dense_points[point_index], dense_points[neighbor_index], cfg,
+                                                  adjacency_radius)) {
+                                continue;
+                            }
+                            visited[neighbor_index] = 1;
+                            frontier.push(neighbor_index);
+                        }
                     }
                 }
-                if (too_far) {
-                    continue;
-                }
             }
-
-            patch.members.push_back(point_index);
-            const double inv_count = 1.0 / static_cast<double>(patch.members.size());
-            patch.centroid_W += (point.x_W - patch.centroid_W) * inv_count;
-            patch.avg_normal_W = SafeNormalized(patch.avg_normal_W + point.n_W, point.n_W);
-            BuildOrthonormalBasis(patch.avg_normal_W, patch.t1_W, patch.t2_W);
-            assigned = true;
-            break;
         }
 
-        if (!assigned) {
-            DensePatch patch;
-            patch.patch_id = out_patches.size();
-            patch.members.push_back(point_index);
-            patch.centroid_W = point.x_W;
-            patch.avg_normal_W = point.n_W;
-            BuildOrthonormalBasis(patch.avg_normal_W, patch.t1_W, patch.t2_W);
-            out_patches.push_back(patch);
-        }
+        out_patches.push_back(
+            MakePatchGeometry(dense_points, out_patches.size(), std::move(members)));
     }
 }
 
