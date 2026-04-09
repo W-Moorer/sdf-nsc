@@ -28,6 +28,7 @@ struct ReducedSupportAggregate {
     double area_weight = 0.0;
     double support_weight = 0.0;
     double allocated_load = 0.0;
+    chrono::ChVector3d allocated_force_W;
     double coverage_radius = 0.0;
     std::size_t dense_members = 0;
 };
@@ -113,6 +114,16 @@ chrono::ChVector3d ProjectToTangentUnit(const chrono::ChVector3d& v_W, const chr
 }
 
 chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, const DenseSubpatch& subpatch) {
+    const chrono::ChVector3d tangential_allocated_force_W =
+        support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
+                                        subpatch.avg_normal_W;
+    const chrono::ChVector3d from_allocated_force =
+        ProjectToTangentUnit(chrono::Vcross(subpatch.avg_normal_W, tangential_allocated_force_W),
+                             subpatch.avg_normal_W);
+    if (from_allocated_force.Length2() > 0.0) {
+        return from_allocated_force;
+    }
+
     const chrono::ChVector3d tangential_velocity_W = support.v_rel_W -
                                                      chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W) *
                                                          subpatch.avg_normal_W;
@@ -129,6 +140,37 @@ chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, con
     }
 
     return subpatch.t1_W;
+}
+
+void BuildSupportBasis(const chrono::ChVector3d& n_W,
+                       const chrono::ChVector3d& preferred_t1_W,
+                       chrono::ChVector3d& t1_W,
+                       chrono::ChVector3d& t2_W) {
+    t1_W = preferred_t1_W - chrono::Vdot(preferred_t1_W, n_W) * n_W;
+    const double t1_len = t1_W.Length();
+    if (!(t1_len > 1.0e-12)) {
+        const chrono::ChVector3d seed =
+            (std::abs(n_W.z()) < 0.9) ? chrono::ChVector3d(0.0, 0.0, 1.0) : chrono::ChVector3d(1.0, 0.0, 0.0);
+        t1_W = chrono::Vcross(seed, n_W);
+    }
+    const double t1_safe_len = t1_W.Length();
+    if (t1_safe_len > 1.0e-12) {
+        t1_W *= (1.0 / t1_safe_len);
+    } else {
+        t1_W = chrono::ChVector3d(1.0, 0.0, 0.0);
+    }
+    t2_W = chrono::Vcross(n_W, t1_W);
+    const double t2_len = t2_W.Length();
+    if (t2_len > 1.0e-12) {
+        t2_W *= (1.0 / t2_len);
+    } else {
+        t2_W = chrono::ChVector3d(0.0, 1.0, 0.0);
+    }
+    t1_W = chrono::Vcross(t2_W, n_W);
+    const double t1_final_len = t1_W.Length();
+    if (t1_final_len > 1.0e-12) {
+        t1_W *= (1.0 / t1_final_len);
+    }
 }
 
 double SubpatchMatchGate(const CompressedContactConfig& cfg,
@@ -580,6 +622,7 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
         support.support_weight =
             (support.phi_eff < -1.0e-12) ? (sum_load / std::max(1.0e-12, -support.phi_eff)) : sum_area;
         support.allocated_load = sum_load;
+        support.allocated_force_W = sum_load * support.n_W;
         support.coverage_radius = max_coverage_radius;
         support.dense_members = count;
         supports.push_back(support);
@@ -725,7 +768,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         std::sort(support_order.begin(), support_order.end(),
                   [&support_ids](std::size_t a, std::size_t b) { return support_ids[a] < support_ids[b]; });
         const ReferenceWrench dense_reference =
-            LocalWrenchAllocator::BuildDenseReference(dense_points, subpatch.members, subpatch.centroid_W);
+            LocalWrenchAllocator::BuildDenseReference(dense_points, subpatch.members, subpatch.centroid_W,
+                                                     mu_default);
         const ReferenceWrench reference =
             BlendTemporalReference(dense_reference, matched_previous_state, cfg_.temporal_reference_blend);
 
@@ -737,6 +781,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                 SupportWrenchPoint point;
                 point.x_W = support.x_W;
                 point.n_W = support.n_W;
+                BuildSupportBasis(point.n_W, subpatch.t1_W, point.t1_W, point.t2_W);
+                point.mu = mu_default;
                 if (matched_supports[support_index] >= 0) {
                     point.initial_load = std::max(
                         0.0, previous_local_contacts[static_cast<std::size_t>(matched_supports[support_index])]
@@ -756,6 +802,11 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             if (allocation.feasible && allocation.loads.size() == supports.size()) {
                 for (std::size_t i = 0; i < supports.size(); ++i) {
                     supports[i].allocated_load = allocation.loads[i];
+                    if (allocation.forces_W.size() == supports.size()) {
+                        supports[i].allocated_force_W = allocation.forces_W[i];
+                    } else {
+                        supports[i].allocated_force_W = allocation.loads[i] * supports[i].n_W;
+                    }
                     if (supports[i].phi_eff < -1.0e-12) {
                         supports[i].support_weight = allocation.loads[i] / std::max(1.0e-12, -supports[i].phi_eff);
                     } else {

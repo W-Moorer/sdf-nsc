@@ -11,11 +11,20 @@ namespace spcc {
 
 namespace {
 
+constexpr int kFrictionPyramidEdges = 4;
+constexpr double kSlipVelocityScale = 1.0e-3;
+
+struct RayColumn {
+    std::size_t support_index = 0;
+    chrono::ChVector3d force_W;
+    std::vector<double> column;
+};
+
 double ProxyLoad(const DenseContactPoint& point) {
     return std::max(0.0, -point.phi_eff) * std::max(0.0, point.area_weight);
 }
 
-double Dot6(const std::vector<double>& a, const std::vector<double>& b) {
+double DotVector(const std::vector<double>& a, const std::vector<double>& b) {
     double sum = 0.0;
     for (std::size_t i = 0; i < a.size(); ++i) {
         sum += a[i] * b[i];
@@ -82,14 +91,57 @@ bool SolveLinearSystem(std::vector<double> A,
     return true;
 }
 
-std::vector<double> BuildScaledColumn(const SupportWrenchPoint& support,
+chrono::ChVector3d SafeNormalized(const chrono::ChVector3d& v, const chrono::ChVector3d& fallback) {
+    const double len = v.Length();
+    if (!(len > 1.0e-12)) {
+        return fallback;
+    }
+    return v * (1.0 / len);
+}
+
+void BuildSupportBasis(const SupportWrenchPoint& support,
+                       chrono::ChVector3d& t1_W,
+                       chrono::ChVector3d& t2_W) {
+    t1_W = support.t1_W - chrono::Vdot(support.t1_W, support.n_W) * support.n_W;
+    t1_W = SafeNormalized(t1_W, chrono::ChVector3d(1.0, 0.0, 0.0));
+    if (std::abs(chrono::Vdot(t1_W, support.n_W)) > 1.0e-3) {
+        const chrono::ChVector3d seed = (std::abs(support.n_W.z()) < 0.9) ? chrono::ChVector3d(0.0, 0.0, 1.0)
+                                                                           : chrono::ChVector3d(1.0, 0.0, 0.0);
+        t1_W = SafeNormalized(chrono::Vcross(seed, support.n_W), chrono::ChVector3d(1.0, 0.0, 0.0));
+    }
+    t2_W = SafeNormalized(chrono::Vcross(support.n_W, t1_W), chrono::ChVector3d(0.0, 1.0, 0.0));
+    t1_W = SafeNormalized(chrono::Vcross(t2_W, support.n_W), t1_W);
+}
+
+std::vector<chrono::ChVector3d> BuildRayDirections(const SupportWrenchPoint& support) {
+    std::vector<chrono::ChVector3d> rays;
+    if (!(support.mu > 0.0)) {
+        rays.push_back(support.n_W);
+        return rays;
+    }
+
+    chrono::ChVector3d t1_W;
+    chrono::ChVector3d t2_W;
+    BuildSupportBasis(support, t1_W, t2_W);
+    rays.reserve(kFrictionPyramidEdges);
+    for (int edge = 0; edge < kFrictionPyramidEdges; ++edge) {
+        const double theta =
+            (2.0 * std::acos(-1.0) * static_cast<double>(edge)) / static_cast<double>(kFrictionPyramidEdges);
+        const chrono::ChVector3d tangent_dir_W = std::cos(theta) * t1_W + std::sin(theta) * t2_W;
+        rays.push_back(support.n_W + support.mu * tangent_dir_W);
+    }
+    return rays;
+}
+
+std::vector<double> BuildScaledColumn(const chrono::ChVector3d& x_W,
+                                      const chrono::ChVector3d& force_W,
                                       const chrono::ChVector3d& origin_W,
                                       double moment_scale) {
-    const chrono::ChVector3d moment = chrono::Vcross(support.x_W - origin_W, support.n_W);
+    const chrono::ChVector3d moment = chrono::Vcross(x_W - origin_W, force_W);
     return {
-        support.n_W.x(),
-        support.n_W.y(),
-        support.n_W.z(),
+        force_W.x(),
+        force_W.y(),
+        force_W.z(),
         moment.x() / moment_scale,
         moment.y() / moment_scale,
         moment.z() / moment_scale,
@@ -118,25 +170,25 @@ double ComputeMomentScale(const std::vector<SupportWrenchPoint>& supports,
     return std::max(1.0e-6, radius * std::max(force_norm, 1.0));
 }
 
-double EvaluateObjective(const std::vector<std::vector<double>>& columns,
+double EvaluateObjective(const std::vector<RayColumn>& rays,
                          const std::vector<double>& target,
                          const std::vector<double>& initial,
-                         const std::vector<double>& loads,
+                         const std::vector<double>& ray_weights,
                          double regularization) {
     std::vector<double> residual(target.size(), -target[0]);
     for (std::size_t row = 0; row < target.size(); ++row) {
         residual[row] = -target[row];
     }
-    for (std::size_t col = 0; col < columns.size(); ++col) {
+    for (std::size_t col = 0; col < rays.size(); ++col) {
         for (std::size_t row = 0; row < target.size(); ++row) {
-            residual[row] += columns[col][row] * loads[col];
+            residual[row] += rays[col].column[row] * ray_weights[col];
         }
     }
 
-    double objective = Dot6(residual, residual);
+    double objective = DotVector(residual, residual);
     if (regularization > 0.0) {
-        for (std::size_t i = 0; i < loads.size(); ++i) {
-            const double delta = loads[i] - initial[i];
+        for (std::size_t i = 0; i < ray_weights.size(); ++i) {
+            const double delta = ray_weights[i] - initial[i];
             objective += regularization * delta * delta;
         }
     }
@@ -152,11 +204,28 @@ std::size_t CountBits(std::size_t mask) {
     return count;
 }
 
+chrono::ChVector3d BuildTangentialProxyForce(const DenseContactPoint& point, double load, double mu_default) {
+    if (!(mu_default > 0.0) || !(load > 0.0)) {
+        return chrono::ChVector3d(0.0, 0.0, 0.0);
+    }
+
+    const chrono::ChVector3d tangential_v_W = point.v_rel_W - chrono::Vdot(point.v_rel_W, point.n_W) * point.n_W;
+    const double tangential_speed = tangential_v_W.Length();
+    if (!(tangential_speed > 1.0e-12)) {
+        return chrono::ChVector3d(0.0, 0.0, 0.0);
+    }
+
+    const double slip_ratio = tangential_speed / (tangential_speed + kSlipVelocityScale);
+    const chrono::ChVector3d tangential_dir_W = tangential_v_W * (1.0 / tangential_speed);
+    return -(mu_default * slip_ratio * load) * tangential_dir_W;
+}
+
 }  // namespace
 
 ReferenceWrench LocalWrenchAllocator::BuildDenseReference(const std::vector<DenseContactPoint>& dense_points,
                                                           const std::vector<std::size_t>& member_indices,
-                                                          const chrono::ChVector3d& origin_W) {
+                                                          const chrono::ChVector3d& origin_W,
+                                                          double mu_default) {
     ReferenceWrench reference;
     reference.origin_W = origin_W;
     reference.force_W = chrono::ChVector3d(0.0, 0.0, 0.0);
@@ -166,8 +235,11 @@ ReferenceWrench LocalWrenchAllocator::BuildDenseReference(const std::vector<Dens
     for (const auto member_index : member_indices) {
         const auto& point = dense_points[member_index];
         const double load = ProxyLoad(point);
-        reference.force_W += load * point.n_W;
-        reference.moment_W += chrono::Vcross(point.x_W - origin_W, load * point.n_W);
+        const chrono::ChVector3d normal_force_W = load * point.n_W;
+        const chrono::ChVector3d tangential_force_W = BuildTangentialProxyForce(point, load, mu_default);
+        const chrono::ChVector3d contact_force_W = normal_force_W + tangential_force_W;
+        reference.force_W += contact_force_W;
+        reference.moment_W += chrono::Vcross(point.x_W - origin_W, contact_force_W);
         reference.total_load += load;
     }
 
@@ -180,6 +252,7 @@ void LocalWrenchAllocator::Allocate(const std::vector<SupportWrenchPoint>& suppo
                                     WrenchAllocationResult& out_result) {
     out_result = WrenchAllocationResult{};
     out_result.loads.assign(supports.size(), 0.0);
+    out_result.forces_W.assign(supports.size(), chrono::ChVector3d(0.0, 0.0, 0.0));
     if (supports.empty()) {
         return;
     }
@@ -187,29 +260,39 @@ void LocalWrenchAllocator::Allocate(const std::vector<SupportWrenchPoint>& suppo
     const double moment_scale = ComputeMomentScale(supports, reference);
     const auto target = BuildScaledTarget(reference, moment_scale);
 
-    std::vector<std::vector<double>> columns;
-    columns.reserve(supports.size());
-    std::vector<double> initial_loads;
-    initial_loads.reserve(supports.size());
-    for (const auto& support : supports) {
-        columns.push_back(BuildScaledColumn(support, reference.origin_W, moment_scale));
-        initial_loads.push_back(std::max(0.0, support.initial_load));
+    std::vector<RayColumn> rays;
+    std::vector<double> initial_ray_weights;
+    for (std::size_t support_index = 0; support_index < supports.size(); ++support_index) {
+        const auto& support = supports[support_index];
+        const auto ray_directions = BuildRayDirections(support);
+        const double initial_load = std::max(0.0, support.initial_load);
+        const double initial_ray_weight = initial_load / static_cast<double>(ray_directions.size());
+        for (const auto& ray_force_W : ray_directions) {
+            RayColumn ray;
+            ray.support_index = support_index;
+            ray.force_W = ray_force_W;
+            ray.column = BuildScaledColumn(support.x_W, ray_force_W, reference.origin_W, moment_scale);
+            rays.push_back(ray);
+            initial_ray_weights.push_back(initial_ray_weight);
+        }
     }
+    out_result.rays_per_support = supports.empty() ? 0 : static_cast<int>(rays.size() / supports.size());
 
     const double regularization = std::max(0.0, temporal_regularization);
-    const std::size_t n = supports.size();
+    const std::size_t n = rays.size();
     const std::size_t mask_limit = static_cast<std::size_t>(1) << n;
     double best_objective = std::numeric_limits<double>::infinity();
-    std::vector<double> best_loads(n, 0.0);
+    std::vector<double> best_ray_weights(n, 0.0);
     bool found = false;
 
     for (std::size_t mask = 0; mask < mask_limit; ++mask) {
         const std::size_t active_count = CountBits(mask);
         if (active_count == 0) {
-            const double objective = EvaluateObjective(columns, target, initial_loads, best_loads, regularization);
+            const double objective =
+                EvaluateObjective(rays, target, initial_ray_weights, best_ray_weights, regularization);
             if (objective < best_objective) {
                 best_objective = objective;
-                best_loads.assign(n, 0.0);
+                best_ray_weights.assign(n, 0.0);
                 found = true;
             }
             continue;
@@ -228,11 +311,11 @@ void LocalWrenchAllocator::Allocate(const std::vector<SupportWrenchPoint>& suppo
         for (std::size_t row = 0; row < active_count; ++row) {
             for (std::size_t col = 0; col < active_count; ++col) {
                 normal_matrix[row * active_count + col] =
-                    Dot6(columns[active_indices[row]], columns[active_indices[col]]) +
+                    DotVector(rays[active_indices[row]].column, rays[active_indices[col]].column) +
                     (row == col ? regularization : 0.0);
             }
-            rhs[row] = Dot6(columns[active_indices[row]], target) +
-                       regularization * initial_loads[active_indices[row]];
+            rhs[row] = DotVector(rays[active_indices[row]].column, target) +
+                       regularization * initial_ray_weights[active_indices[row]];
         }
 
         std::vector<double> active_loads;
@@ -241,36 +324,42 @@ void LocalWrenchAllocator::Allocate(const std::vector<SupportWrenchPoint>& suppo
         }
 
         bool nonnegative = true;
-        std::vector<double> candidate_loads(n, 0.0);
+        std::vector<double> candidate_ray_weights(n, 0.0);
         for (std::size_t i = 0; i < active_count; ++i) {
             if (active_loads[i] < -1.0e-10) {
                 nonnegative = false;
                 break;
             }
-            candidate_loads[active_indices[i]] = std::max(0.0, active_loads[i]);
+            candidate_ray_weights[active_indices[i]] = std::max(0.0, active_loads[i]);
         }
         if (!nonnegative) {
             continue;
         }
 
         const double objective =
-            EvaluateObjective(columns, target, initial_loads, candidate_loads, regularization);
+            EvaluateObjective(rays, target, initial_ray_weights, candidate_ray_weights, regularization);
         if (objective < best_objective) {
             best_objective = objective;
-            best_loads = std::move(candidate_loads);
+            best_ray_weights = std::move(candidate_ray_weights);
             found = true;
         }
     }
 
-    out_result.loads = std::move(best_loads);
+    out_result.ray_weights = best_ray_weights;
+    for (std::size_t ray_index = 0; ray_index < rays.size(); ++ray_index) {
+        const auto& ray = rays[ray_index];
+        const double weight = best_ray_weights[ray_index];
+        out_result.loads[ray.support_index] += weight;
+        out_result.forces_W[ray.support_index] += weight * ray.force_W;
+    }
     out_result.objective = found ? best_objective : 0.0;
     out_result.feasible = found;
 
     chrono::ChVector3d force_W(0.0, 0.0, 0.0);
     chrono::ChVector3d moment_W(0.0, 0.0, 0.0);
     for (std::size_t i = 0; i < supports.size(); ++i) {
-        force_W += out_result.loads[i] * supports[i].n_W;
-        moment_W += chrono::Vcross(supports[i].x_W - reference.origin_W, out_result.loads[i] * supports[i].n_W);
+        force_W += out_result.forces_W[i];
+        moment_W += chrono::Vcross(supports[i].x_W - reference.origin_W, out_result.forces_W[i]);
     }
 
     const double force_scale = std::max(1.0e-12, reference.force_W.Length());

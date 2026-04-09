@@ -14,6 +14,9 @@ namespace spcc {
 struct SupportWrenchPoint {
     chrono::ChVector3d x_W;
     chrono::ChVector3d n_W;
+    chrono::ChVector3d t1_W;
+    chrono::ChVector3d t2_W;
+    double mu = 0.0;
     double initial_load = 0.0;
 };
 
@@ -26,6 +29,9 @@ struct ReferenceWrench {
 
 struct WrenchAllocationResult {
     std::vector<double> loads;
+    std::vector<chrono::ChVector3d> forces_W;
+    std::vector<double> ray_weights;
+    int rays_per_support = 0;
     double objective = 0.0;
     double force_residual = 0.0;
     double moment_residual = 0.0;
@@ -36,7 +42,8 @@ class LocalWrenchAllocator {
   public:
     static ReferenceWrench BuildDenseReference(const std::vector<DenseContactPoint>& dense_points,
                                               const std::vector<std::size_t>& member_indices,
-                                              const chrono::ChVector3d& origin_W);
+                                              const chrono::ChVector3d& origin_W,
+                                              double mu_default);
 
     static void Allocate(const std::vector<SupportWrenchPoint>& supports,
                          const ReferenceWrench& reference,
