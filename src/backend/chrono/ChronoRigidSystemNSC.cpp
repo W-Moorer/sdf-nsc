@@ -71,6 +71,13 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
     cfg.delta_on = GetScopedEnvDouble(env_prefix, "DELTA_ON", cfg.delta_on);
     cfg.delta_off = GetScopedEnvDouble(env_prefix, "DELTA_OFF", cfg.delta_off);
     cfg.max_active_dense = GetScopedEnvInt(env_prefix, "MAX_ACTIVE_DENSE", cfg.max_active_dense);
+    cfg.bvh_leaf_size = GetScopedEnvInt(env_prefix, "BVH_LEAF_SIZE", cfg.bvh_leaf_size);
+    cfg.bvh_query_margin = GetScopedEnvDouble(env_prefix, "BVH_QUERY_MARGIN", cfg.bvh_query_margin);
+    cfg.bvh_velocity_bound_scale =
+        GetScopedEnvDouble(env_prefix, "BVH_VELOCITY_BOUND_SCALE", cfg.bvh_velocity_bound_scale);
+    cfg.bvh_enable_sdf_node_bound =
+        (GetScopedEnvDouble(env_prefix, "BVH_ENABLE_SDF_NODE_BOUND", cfg.bvh_enable_sdf_node_bound ? 1.0 : 0.0) >
+         0.5);
     cfg.patch_radius = GetScopedEnvDouble(env_prefix, "PATCH_RADIUS", cfg.patch_radius);
     cfg.normal_cos_min = GetScopedEnvDouble(env_prefix, "NORMAL_COS_MIN", cfg.normal_cos_min);
     cfg.max_patch_diameter = GetScopedEnvDouble(env_prefix, "MAX_PATCH_DIAMETER", cfg.max_patch_diameter);
@@ -388,8 +395,13 @@ public:
              std::cout << "[SDF] Step " << step_id << " reduced contacts: " << penetration_count;
              if (GetEnvDouble("SPCC_DEBUG_CONTACT_STATS", 0.0) > 0.5) {
                  std::cout << " dense=" << stats.dense_count
+                           << " total=" << stats.total_samples
+                           << " candidates=" << stats.candidate_count
                            << " reduced=" << stats.reduced_count
                            << " patches=" << stats.patch_count
+                           << " bvhVisited=" << stats.bvh_nodes_visited
+                           << " bvhPrunedObb=" << stats.bvh_nodes_pruned_obb
+                           << " bvhPrunedSdf=" << stats.bvh_nodes_pruned_sdf
                            << " epsF=" << stats.epsilon_F
                            << " epsM=" << stats.epsilon_M
                            << " epsCoP=" << stats.epsilon_CoP

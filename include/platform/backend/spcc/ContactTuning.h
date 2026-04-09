@@ -18,6 +18,10 @@ struct CompressedContactConfig {
     double delta_on = 0.0;
     double delta_off = 0.0;
     int max_active_dense = 0;
+    int bvh_leaf_size = 24;
+    double bvh_query_margin = 0.0;
+    double bvh_velocity_bound_scale = 1.0;
+    bool bvh_enable_sdf_node_bound = true;
     double patch_radius = 0.0;
     double normal_cos_min = 0.9;
     double max_patch_diameter = 0.0;
@@ -49,6 +53,10 @@ inline CompressedContactConfig MakeCamCompressedDefaults() {
     cfg.delta_on = 4.0e-3;
     cfg.delta_off = 5.0e-3;
     cfg.max_active_dense = 160;
+    cfg.bvh_leaf_size = 24;
+    cfg.bvh_query_margin = 2.0e-3;
+    cfg.bvh_velocity_bound_scale = 1.0;
+    cfg.bvh_enable_sdf_node_bound = true;
     cfg.patch_radius = 8.0e-3;
     cfg.normal_cos_min = 0.93;
     cfg.max_patch_diameter = 1.6e-2;
@@ -102,6 +110,10 @@ inline CompressedContactConfig MakeHeadOnSphereCompressedDefaults() {
     cfg.delta_on = 2.0e-3;
     cfg.delta_off = 3.0e-3;
     cfg.max_active_dense = 16;
+    cfg.bvh_leaf_size = 16;
+    cfg.bvh_query_margin = 1.0e-3;
+    cfg.bvh_velocity_bound_scale = 1.0;
+    cfg.bvh_enable_sdf_node_bound = true;
     cfg.patch_radius = 1.0e-3;
     cfg.normal_cos_min = 0.98;
     cfg.max_patch_diameter = 2.0e-3;
@@ -134,6 +146,10 @@ inline CompressedContactConfig MakeGearCompressedDefaults() {
     cfg.delta_on = 1.0e-4;
     cfg.delta_off = 5.0e-4;
     cfg.max_active_dense = 192;
+    cfg.bvh_leaf_size = 24;
+    cfg.bvh_query_margin = 2.5e-4;
+    cfg.bvh_velocity_bound_scale = 1.0;
+    cfg.bvh_enable_sdf_node_bound = true;
     cfg.patch_radius = 8.0e-4;
     cfg.normal_cos_min = 0.90;
     cfg.max_patch_diameter = 1.2e-3;

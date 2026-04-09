@@ -265,8 +265,9 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
     }
 
     std::ofstream out(path);
-    out << "scenario,description,dense_count,reduced_count,compression_ratio,patch_count,expected_patch_count,"
-           "epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,dense_force_norm,reduced_force_norm,"
+    out << "scenario,description,total_samples,candidate_count,dense_count,reduced_count,compression_ratio,"
+           "patch_count,expected_patch_count,bvh_nodes_visited,bvh_nodes_pruned_obb,bvh_nodes_pruned_sdf,"
+           "bvh_leaf_samples_tested,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,dense_force_norm,reduced_force_norm,"
            "dense_moment_norm,reduced_moment_norm,pass\n";
     for (const auto& result : results) {
         const double dense_count = static_cast<double>(result.report.stats.dense_count);
@@ -274,11 +275,17 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
         const double ratio = (dense_count > 0.0) ? (reduced_count / dense_count) : 0.0;
         out << result.definition.name << ','
             << '"' << result.definition.description << '"' << ','
+            << result.report.stats.total_samples << ','
+            << result.report.stats.candidate_count << ','
             << result.report.stats.dense_count << ','
             << result.report.stats.reduced_count << ','
             << ratio << ','
             << result.report.stats.patch_count << ','
             << result.definition.expected_patch_count << ','
+            << result.report.stats.bvh_nodes_visited << ','
+            << result.report.stats.bvh_nodes_pruned_obb << ','
+            << result.report.stats.bvh_nodes_pruned_sdf << ','
+            << result.report.stats.bvh_leaf_samples_tested << ','
             << result.report.stats.epsilon_F << ','
             << result.report.stats.epsilon_M << ','
             << result.report.stats.epsilon_CoP << ','
@@ -298,6 +305,11 @@ void PrintScenarioResult(const ScenarioResult& result) {
 
     std::cout << result.definition.name << " : " << (result.pass ? "PASS" : "FAIL") << '\n';
     std::cout << "  desc            : " << result.definition.description << '\n';
+    std::cout << "  dense query     : total=" << result.report.stats.total_samples
+              << " candidates=" << result.report.stats.candidate_count
+              << " bvhVisited=" << result.report.stats.bvh_nodes_visited
+              << " prunedObb=" << result.report.stats.bvh_nodes_pruned_obb
+              << " prunedSdf=" << result.report.stats.bvh_nodes_pruned_sdf << '\n';
     std::cout << "  contacts        : dense=" << result.report.stats.dense_count
               << " reduced=" << result.report.stats.reduced_count
               << " ratio=" << std::fixed << std::setprecision(4) << ratio << '\n';

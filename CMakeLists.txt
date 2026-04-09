@@ -33,6 +33,8 @@ set(PLATFORM_BACKEND_SOURCES
     src/backend/chrono/ChronoRigidSystemNSC.cpp
     src/backend/chrono/spcc/CompressedContactPipeline.cpp
     src/backend/chrono/spcc/CompressedContactValidation.cpp
+    src/backend/chrono/spcc/DenseContactCloud.cpp
+    src/backend/chrono/spcc/DenseSampleBVH.cpp
     src/backend/chrono/spcc/DenseSurfaceSampler.cpp
     src/models/BaselineDropCase.cpp
     src/models/BaselineHeadOnSphereCase.cpp

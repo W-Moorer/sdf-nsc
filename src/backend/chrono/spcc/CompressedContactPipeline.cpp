@@ -3,26 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <numeric>
-#include <unordered_set>
 
 namespace platform {
 namespace backend {
 namespace spcc {
 
 namespace {
-
-struct DenseContactPoint {
-    std::size_t sample_id = 0;
-    chrono::ChVector3d x_W;
-    chrono::ChVector3d x_master_M;
-    chrono::ChVector3d x_master_surface_W;
-    chrono::ChVector3d n_W;
-    chrono::ChVector3d v_rel_W;
-    double phi = 0.0;
-    double phi_eff = 0.0;
-    double area_weight = 0.0;
-};
 
 struct PatchAccumulator {
     std::vector<std::size_t> members;
@@ -366,11 +352,15 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForPatch(const std::vec
 
 void CompressedContactPipeline::Configure(const CompressedContactConfig& cfg) {
     cfg_ = cfg;
+    if (!slave_surface_samples_.empty()) {
+        dense_sample_bvh_.Build(slave_surface_samples_, cfg_.bvh_leaf_size);
+    }
     previous_contacts_.clear();
 }
 
 void CompressedContactPipeline::SetSlaveSurfaceSamples(std::vector<DenseSurfaceSample> samples) {
     slave_surface_samples_ = std::move(samples);
+    dense_sample_bvh_.Build(slave_surface_samples_, cfg_.bvh_leaf_size);
     previous_contacts_.clear();
 }
 
@@ -384,57 +374,9 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     out_contacts.clear();
 
     std::vector<DenseContactPoint> dense_points;
-    dense_points.reserve(slave_surface_samples_.size());
-
-    for (std::size_t sample_id = 0; sample_id < slave_surface_samples_.size(); ++sample_id) {
-        const auto& sample = slave_surface_samples_[sample_id];
-        const chrono::ChVector3d x_W = slave_state.x_ref_W + slave_state.R_WRef * sample.xi_slave_S;
-        const chrono::ChVector3d x_master_M = master_state.R_WRef.transpose() * (x_W - master_state.x_ref_W);
-
-        double phi = 0.0;
-        chrono::ChVector3d grad_M;
-        if (!sdf.QueryPhiGradM(x_master_M, phi, grad_M)) {
-            continue;
-        }
-
-        chrono::ChVector3d n_W = master_state.R_WRef * grad_M;
-        n_W = SafeNormalized(n_W, chrono::ChVector3d(0.0, 1.0, 0.0));
-
-        const chrono::ChVector3d rA_W = x_W - master_state.x_com_W;
-        const chrono::ChVector3d rB_W = x_W - slave_state.x_com_W;
-        const chrono::ChVector3d v_master_W = master_state.v_com_W + chrono::Vcross(master_state.w_W, rA_W);
-        const chrono::ChVector3d v_slave_W = slave_state.v_com_W + chrono::Vcross(slave_state.w_W, rB_W);
-        const chrono::ChVector3d v_rel_W = v_slave_W - v_master_W;
-
-        double phi_eff = phi;
-        if (cfg_.predictive_gap) {
-            phi_eff += step_size * std::min(0.0, chrono::Vdot(n_W, v_rel_W));
-        }
-
-        if (!(phi_eff <= cfg_.delta_on || phi <= cfg_.delta_on)) {
-            continue;
-        }
-
-        DenseContactPoint point;
-        point.sample_id = sample_id;
-        point.x_W = x_W;
-        point.x_master_M = x_master_M;
-        point.x_master_surface_W = x_W - phi * n_W;
-        point.n_W = n_W;
-        point.v_rel_W = v_rel_W;
-        point.phi = phi;
-        point.phi_eff = phi_eff;
-        point.area_weight = sample.area_weight;
-        dense_points.push_back(point);
-    }
-
-    if (cfg_.max_active_dense > 0 && static_cast<int>(dense_points.size()) > cfg_.max_active_dense) {
-        std::stable_sort(dense_points.begin(), dense_points.end(), [](const DenseContactPoint& a,
-                                                                      const DenseContactPoint& b) {
-            return a.phi_eff < b.phi_eff;
-        });
-        dense_points.resize(static_cast<std::size_t>(cfg_.max_active_dense));
-    }
+    DenseContactCloudStats cloud_stats;
+    DenseContactCloudBuilder::Build(cfg_, slave_surface_samples_, dense_sample_bvh_, master_state, slave_state, sdf,
+                                    step_size, dense_points, &cloud_stats);
 
     std::vector<PatchAccumulator> patches;
     for (std::size_t point_index = 0; point_index < dense_points.size(); ++point_index) {
@@ -528,9 +470,15 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         return;
     }
 
+    out_stats->total_samples = cloud_stats.total_samples;
+    out_stats->candidate_count = cloud_stats.candidate_samples;
     out_stats->dense_count = dense_points.size();
     out_stats->reduced_count = out_contacts.size();
     out_stats->patch_count = patches.size();
+    out_stats->bvh_nodes_visited = cloud_stats.bvh.nodes_visited;
+    out_stats->bvh_nodes_pruned_obb = cloud_stats.bvh.nodes_pruned_obb;
+    out_stats->bvh_nodes_pruned_sdf = cloud_stats.bvh.nodes_pruned_sdf;
+    out_stats->bvh_leaf_samples_tested = cloud_stats.bvh.leaf_samples_tested;
 
     if (dense_points.empty() || out_contacts.empty()) {
         out_stats->epsilon_F = 0.0;

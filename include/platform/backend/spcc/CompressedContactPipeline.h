@@ -6,6 +6,8 @@
 #include <chrono/core/ChVector3.h>
 
 #include "platform/backend/spcc/ContactTuning.h"
+#include "platform/backend/spcc/DenseContactCloud.h"
+#include "platform/backend/spcc/DenseSampleBVH.h"
 #include "platform/backend/spcc/DenseSurfaceSampler.h"
 #include "platform/backend/spcc/FirstOrderSDF.h"
 
@@ -32,9 +34,15 @@ struct ReducedContactPoint {
 };
 
 struct CompressionStats {
+    std::size_t total_samples = 0;
+    std::size_t candidate_count = 0;
     std::size_t dense_count = 0;
     std::size_t reduced_count = 0;
     std::size_t patch_count = 0;
+    std::size_t bvh_nodes_visited = 0;
+    std::size_t bvh_nodes_pruned_obb = 0;
+    std::size_t bvh_nodes_pruned_sdf = 0;
+    std::size_t bvh_leaf_samples_tested = 0;
     double epsilon_F = 0.0;
     double epsilon_M = 0.0;
     double epsilon_CoP = 0.0;
@@ -57,6 +65,7 @@ class CompressedContactPipeline {
   private:
     CompressedContactConfig cfg_;
     std::vector<DenseSurfaceSample> slave_surface_samples_;
+    DenseSampleBVH dense_sample_bvh_;
     mutable std::vector<ReducedContactPoint> previous_contacts_;
 };
 
