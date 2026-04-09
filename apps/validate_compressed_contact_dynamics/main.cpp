@@ -364,6 +364,43 @@ TemporalCoherenceMetrics ComputeTemporalCoherence(const std::vector<ReducedConta
     metrics.hausdorff = std::max(DirectedHausdorffDistance(previous_supports, current_supports),
                                  DirectedHausdorffDistance(current_supports, previous_supports));
 
+    bool has_persistent_ids = false;
+    for (const auto& point : previous_supports) {
+        if (point.persistent_id != 0) {
+            has_persistent_ids = true;
+            break;
+        }
+    }
+    if (!has_persistent_ids) {
+        for (const auto& point : current_supports) {
+            if (point.persistent_id != 0) {
+                has_persistent_ids = true;
+                break;
+            }
+        }
+    }
+
+    if (has_persistent_ids) {
+        double sum_drift = 0.0;
+        std::size_t matched = 0;
+        for (const auto& point : current_supports) {
+            for (const auto& previous : previous_supports) {
+                if (point.persistent_id == previous.persistent_id && point.support_id == previous.support_id) {
+                    sum_drift += (point.x_W - previous.x_W).Length();
+                    ++matched;
+                    break;
+                }
+            }
+        }
+        if (matched > 0) {
+            metrics.mean_drift = sum_drift / static_cast<double>(matched);
+        }
+        metrics.support_churn =
+            1.0 - static_cast<double>(matched) /
+                      static_cast<double>(std::max(previous_supports.size(), current_supports.size()));
+        return metrics;
+    }
+
     double sum_drift = 0.0;
     std::size_t matched = 0;
     for (const auto& point : current_supports) {
@@ -578,6 +615,7 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
     std::vector<ReducedContactPoint> previous_reduced_supports;
 
     for (int step_index = 0; step_index < scenario.steps; ++step_index) {
+        const bool has_temporal_reference = !previous_reduced_supports.empty();
         const auto dense_before = CaptureKinematics(dense_sim.slave);
         const auto reduced_before = CaptureKinematics(reduced_sim.slave);
 
@@ -641,7 +679,9 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
             std::max(summary.max_temporal_hausdorff, step.temporal_hausdorff);
         summary.max_temporal_mean_drift =
             std::max(summary.max_temporal_mean_drift, step.temporal_mean_drift);
-        summary.max_support_churn = std::max(summary.max_support_churn, step.support_churn);
+        if (has_temporal_reference) {
+            summary.max_support_churn = std::max(summary.max_support_churn, step.support_churn);
+        }
 
         if (step.dense_contacts > 0 || step.reduced_contacts > 0) {
             ++summary.contact_steps;
@@ -659,8 +699,10 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
                 std::max(summary.max_contact_temporal_hausdorff, step.temporal_hausdorff);
             summary.max_contact_temporal_mean_drift =
                 std::max(summary.max_contact_temporal_mean_drift, step.temporal_mean_drift);
-            summary.max_contact_support_churn =
-                std::max(summary.max_contact_support_churn, step.support_churn);
+            if (has_temporal_reference) {
+                summary.max_contact_support_churn =
+                    std::max(summary.max_contact_support_churn, step.support_churn);
+            }
         }
     }
 

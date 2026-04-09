@@ -16,6 +16,7 @@ namespace backend {
 namespace spcc {
 
 struct ReducedContactPoint {
+    std::size_t persistent_id = 0;
     std::size_t patch_id = 0;
     std::size_t subpatch_id = 0;
     std::size_t support_id = 0;
@@ -56,6 +57,14 @@ struct CompressionStats {
     double max_subpatch_moment_residual = 0.0;
 };
 
+struct TemporalSubpatchState {
+    std::size_t persistent_id = 0;
+    chrono::ChVector3d centroid_W;
+    chrono::ChVector3d avg_normal_W;
+    double diameter = 0.0;
+    std::vector<ReducedContactPoint> contacts;
+};
+
 class CompressedContactPipeline {
   public:
     void Configure(const CompressedContactConfig& cfg);
@@ -74,6 +83,8 @@ class CompressedContactPipeline {
     std::vector<DenseSurfaceSample> slave_surface_samples_;
     DenseSampleBVH dense_sample_bvh_;
     mutable std::vector<ReducedContactPoint> previous_contacts_;
+    mutable std::vector<TemporalSubpatchState> previous_subpatches_;
+    mutable std::size_t next_persistent_id_ = 1;
 };
 
 }  // namespace spcc

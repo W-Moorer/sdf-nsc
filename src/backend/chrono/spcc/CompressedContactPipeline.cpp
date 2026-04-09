@@ -30,6 +30,12 @@ struct ReducedSupportAggregate {
     std::size_t dense_members = 0;
 };
 
+struct SubpatchMatchCandidate {
+    std::size_t current_index = 0;
+    std::size_t previous_index = 0;
+    double score = 0.0;
+};
+
 double ProxyLoad(const DenseContactPoint& point) {
     return std::max(0.0, -point.phi_eff) * std::max(0.0, point.area_weight);
 }
@@ -87,6 +93,89 @@ double TangentialRadiusSquared(const chrono::ChVector3d& x_W,
     const chrono::ChVector3d rel = x_W - origin_W;
     const chrono::ChVector3d tangential = rel - chrono::Vdot(rel, n_W) * n_W;
     return tangential.Length2();
+}
+
+double SubpatchMatchGate(const CompressedContactConfig& cfg,
+                         const DenseSubpatch& current,
+                         const TemporalSubpatchState& previous) {
+    const double base =
+        std::max({cfg.warm_start_match_radius, cfg.max_subpatch_diameter, cfg.max_patch_diameter,
+                  0.5 * current.diameter, 0.5 * previous.diameter, 1.0e-6});
+    return 1.5 * base;
+}
+
+std::vector<std::ptrdiff_t> MatchSubpatches(const std::vector<DenseSubpatch>& current_subpatches,
+                                            const std::vector<TemporalSubpatchState>& previous_subpatches,
+                                            const CompressedContactConfig& cfg) {
+    std::vector<std::ptrdiff_t> matched_previous(current_subpatches.size(), -1);
+    if (current_subpatches.empty() || previous_subpatches.empty() || !(cfg.warm_start_match_radius > 0.0)) {
+        return matched_previous;
+    }
+
+    std::vector<SubpatchMatchCandidate> candidates;
+    for (std::size_t current_index = 0; current_index < current_subpatches.size(); ++current_index) {
+        const auto& current = current_subpatches[current_index];
+        for (std::size_t previous_index = 0; previous_index < previous_subpatches.size(); ++previous_index) {
+            const auto& previous = previous_subpatches[previous_index];
+            const double normal_cos = chrono::Vdot(current.avg_normal_W, previous.avg_normal_W);
+            if (normal_cos < cfg.normal_cos_min) {
+                continue;
+            }
+
+            const double gate = SubpatchMatchGate(cfg, current, previous);
+            const double distance = (current.centroid_W - previous.centroid_W).Length();
+            if (distance > gate) {
+                continue;
+            }
+
+            SubpatchMatchCandidate candidate;
+            candidate.current_index = current_index;
+            candidate.previous_index = previous_index;
+            candidate.score = distance / gate + 0.5 * (1.0 - normal_cos);
+            candidates.push_back(candidate);
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(),
+              [](const SubpatchMatchCandidate& a, const SubpatchMatchCandidate& b) {
+                  return a.score < b.score;
+              });
+
+    std::vector<char> previous_taken(previous_subpatches.size(), 0);
+    std::vector<char> current_taken(current_subpatches.size(), 0);
+    for (const auto& candidate : candidates) {
+        if (current_taken[candidate.current_index] || previous_taken[candidate.previous_index]) {
+            continue;
+        }
+        current_taken[candidate.current_index] = 1;
+        previous_taken[candidate.previous_index] = 1;
+        matched_previous[candidate.current_index] = static_cast<std::ptrdiff_t>(candidate.previous_index);
+    }
+
+    return matched_previous;
+}
+
+double LookupPreviousAllocatedLoad(const ReducedSupportAggregate& support,
+                                   const std::vector<ReducedContactPoint>& previous_contacts,
+                                   double match_radius) {
+    if (previous_contacts.empty()) {
+        return std::max(0.0, support.allocated_load);
+    }
+
+    double best_distance = std::numeric_limits<double>::infinity();
+    double best_load = std::max(0.0, support.allocated_load);
+    for (const auto& previous : previous_contacts) {
+        const double distance = (previous.x_W - support.x_W).Length();
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_load = std::max(0.0, previous.allocated_load);
+        }
+    }
+
+    if (match_radius > 0.0 && best_distance > 2.0 * match_radius) {
+        return std::max(0.0, support.allocated_load);
+    }
+    return best_load;
 }
 
 std::vector<std::size_t> SelectSupportIndices(const std::vector<DenseContactPoint>& dense_points,
@@ -402,12 +491,16 @@ void CompressedContactPipeline::Configure(const CompressedContactConfig& cfg) {
         dense_sample_bvh_.Build(slave_surface_samples_, cfg_.bvh_leaf_size);
     }
     previous_contacts_.clear();
+    previous_subpatches_.clear();
+    next_persistent_id_ = 1;
 }
 
 void CompressedContactPipeline::SetSlaveSurfaceSamples(std::vector<DenseSurfaceSample> samples) {
     slave_surface_samples_ = std::move(samples);
     dense_sample_bvh_.Build(slave_surface_samples_, cfg_.bvh_leaf_size);
     previous_contacts_.clear();
+    previous_subpatches_.clear();
+    next_persistent_id_ = 1;
 }
 
 void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& master_state,
@@ -429,6 +522,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
 
     std::vector<DenseSubpatch> subpatches;
     SubpatchRefiner::BuildSubpatches(dense_points, patches, cfg_, subpatches);
+    const auto matched_previous = MatchSubpatches(subpatches, previous_subpatches_, cfg_);
 
     double max_subpatch_plane_error = 0.0;
     double max_subpatch_gap_error = 0.0;
@@ -436,11 +530,20 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     double max_subpatch_moment_residual = 0.0;
 
     out_contacts.reserve(dense_points.size());
-    for (const auto& subpatch : subpatches) {
+    std::vector<TemporalSubpatchState> current_subpatches;
+    current_subpatches.reserve(subpatches.size());
+    for (std::size_t subpatch_index = 0; subpatch_index < subpatches.size(); ++subpatch_index) {
+        const auto& subpatch = subpatches[subpatch_index];
         max_subpatch_plane_error = std::max(max_subpatch_plane_error, subpatch.plane_error);
 
         std::vector<ReducedContactPoint> previous_local_contacts;
-        if (cfg_.warm_start_match_radius > 0.0) {
+        std::size_t persistent_id = 0;
+        if (matched_previous[subpatch_index] >= 0) {
+            const auto& previous_state =
+                previous_subpatches_[static_cast<std::size_t>(matched_previous[subpatch_index])];
+            persistent_id = previous_state.persistent_id;
+            previous_local_contacts = previous_state.contacts;
+        } else if (cfg_.warm_start_match_radius > 0.0) {
             const double gate = std::max(
                 {cfg_.warm_start_match_radius, cfg_.max_subpatch_diameter, cfg_.max_patch_diameter, 1.0e-6});
             for (const auto& previous : previous_contacts_) {
@@ -451,6 +554,9 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                     previous_local_contacts.push_back(previous);
                 }
             }
+        }
+        if (persistent_id == 0) {
+            persistent_id = next_persistent_id_++;
         }
 
         int target_points = cfg_.max_reduced_points_per_patch;
@@ -470,7 +576,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                 SupportWrenchPoint point;
                 point.x_W = support.x_W;
                 point.n_W = support.n_W;
-                point.initial_load = std::max(0.0, support.allocated_load);
+                point.initial_load =
+                    LookupPreviousAllocatedLoad(support, previous_local_contacts, cfg_.warm_start_match_radius);
                 support_points.push_back(point);
             }
 
@@ -497,6 +604,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         for (std::size_t support_id = 0; support_id < supports.size(); ++support_id) {
             const auto& support = supports[support_id];
             ReducedContactPoint reduced;
+            reduced.persistent_id = persistent_id;
             reduced.patch_id = support.patch_id;
             reduced.subpatch_id = support.subpatch_id;
             reduced.support_id = support_id;
@@ -514,9 +622,20 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.mu = mu_default;
             out_contacts.push_back(reduced);
         }
+
+        TemporalSubpatchState temporal_state;
+        temporal_state.persistent_id = persistent_id;
+        temporal_state.centroid_W = subpatch.centroid_W;
+        temporal_state.avg_normal_W = subpatch.avg_normal_W;
+        temporal_state.diameter = subpatch.diameter;
+        for (std::size_t support_id = 0; support_id < supports.size(); ++support_id) {
+            temporal_state.contacts.push_back(out_contacts[out_contacts.size() - supports.size() + support_id]);
+        }
+        current_subpatches.push_back(std::move(temporal_state));
     }
 
     previous_contacts_ = out_contacts;
+    previous_subpatches_ = std::move(current_subpatches);
 
     if (!out_stats) {
         return;

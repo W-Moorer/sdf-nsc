@@ -236,3 +236,59 @@ TEST(CompressedContactPipelineTest, KeepsChainConnectedContactRegionAsSinglePatc
     EXPECT_EQ(stats.patch_count, 1u);
     EXPECT_EQ(stats.subpatch_count, 1u);
 }
+
+TEST(CompressedContactPipelineTest, PreservesPersistentIdAcrossSmallMotion) {
+    platform::backend::spcc::CompressedContactPipeline pipeline;
+    platform::backend::spcc::CompressedContactConfig cfg;
+    cfg.delta_on = 0.02;
+    cfg.delta_off = 0.03;
+    cfg.max_active_dense = 0;
+    cfg.patch_radius = 0.2;
+    cfg.normal_cos_min = 0.95;
+    cfg.max_patch_diameter = 0.4;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
+    cfg.max_reduced_points_per_patch = 4;
+    cfg.warm_start_match_radius = 0.02;
+    pipeline.Configure(cfg);
+
+    std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
+    for (int ix = -2; ix <= 2; ++ix) {
+        for (int iz = -2; iz <= 2; ++iz) {
+            platform::backend::spcc::DenseSurfaceSample sample;
+            sample.xi_slave_S = chrono::ChVector3d(0.02 * ix, -0.01, 0.02 * iz);
+            sample.normal_slave_S = chrono::ChVector3d(0.0, 1.0, 0.0);
+            sample.area_weight = 1.0;
+            samples.push_back(sample);
+        }
+    }
+    pipeline.SetSlaveSurfaceSamples(samples);
+
+    PlaneSDF sdf;
+    const auto master_state = MakeIdentityState();
+    auto slave_state = MakeIdentityState();
+
+    std::vector<platform::backend::spcc::ReducedContactPoint> reduced_a;
+    platform::backend::spcc::CompressionStats stats_a;
+    pipeline.BuildReducedContacts(master_state, slave_state, sdf, 0.2, 1.0e-3, reduced_a, &stats_a);
+
+    slave_state.x_ref_W = chrono::ChVector3d(5.0e-4, 0.0, 0.0);
+    std::vector<platform::backend::spcc::ReducedContactPoint> reduced_b;
+    platform::backend::spcc::CompressionStats stats_b;
+    pipeline.BuildReducedContacts(master_state, slave_state, sdf, 0.2, 1.0e-3, reduced_b, &stats_b);
+
+    ASSERT_FALSE(reduced_a.empty());
+    ASSERT_FALSE(reduced_b.empty());
+    EXPECT_EQ(stats_a.patch_count, 1u);
+    EXPECT_EQ(stats_b.patch_count, 1u);
+    for (const auto& contact : reduced_a) {
+        EXPECT_NE(contact.persistent_id, 0u);
+    }
+    for (const auto& contact : reduced_b) {
+        EXPECT_EQ(contact.persistent_id, reduced_a.front().persistent_id);
+    }
+}
