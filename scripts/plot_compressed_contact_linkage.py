@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -55,10 +55,29 @@ plt.rcParams["font.serif"] = [
 plt.rcParams["pdf.fonttype"] = 42
 plt.rcParams["ps.fonttype"] = 42
 plt.rcParams["font.size"] = 10
+plt.rcParams["axes.labelsize"] = 8.5
+plt.rcParams["axes.titlesize"] = 8.5
+plt.rcParams["xtick.labelsize"] = 7.5
+plt.rcParams["ytick.labelsize"] = 7.5
+plt.rcParams["legend.fontsize"] = 7.5
 plt.rcParams["mathtext.fontset"] = "custom"
 plt.rcParams["mathtext.rm"] = "TeX Gyre Termes"
 plt.rcParams["mathtext.it"] = "TeX Gyre Termes:italic"
 plt.rcParams["mathtext.bf"] = "TeX Gyre Termes:bold"
+
+FULL_WIDTH_IN = 7.05
+
+STATIC_COLOR = "#1f4e79"
+DYNAMIC_COLOR = "#b03a2e"
+TEMPORAL_COLOR = "#2f6f44"
+TEMPORAL_DYNAMIC_COLOR = "#6c3483"
+CONTACT_SHADE = "#d9d9d9"
+SCENARIO_STYLE = {
+    "tilted_plate_impact": {"color": "#1f77b4", "marker": "o", "label": "Impact"},
+    "tilted_plate_slide": {"color": "#d97706", "marker": "^", "label": "Slide"},
+}
+
+PANEL_LABELS = "abcdefghijklmnopqrstuvwxyz"
 
 
 def pearson_corr(x: np.ndarray, y: np.ndarray) -> float:
@@ -117,10 +136,80 @@ def save_figure(fig: plt.Figure, stem: str) -> None:
     print(f"saved {png_path}")
 
 
+def panel_label(index: int) -> str:
+    return f"({PANEL_LABELS[index]})"
+
+
+def decorate_panel(ax: plt.Axes, index: int) -> None:
+    ax.text(
+        0.02,
+        0.98,
+        panel_label(index),
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=8.0,
+        fontweight="bold",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 1.8},
+    )
+
+
+def add_pair_tag(ax: plt.Axes, text: str) -> None:
+    ax.text(
+        0.5,
+        0.98,
+        text,
+        transform=ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=7.5,
+        bbox={"facecolor": "white", "edgecolor": "#cccccc", "alpha": 0.9, "pad": 2.0},
+    )
+
+
+def add_contact_band(ax: plt.Axes, t: np.ndarray, contact_mask: np.ndarray) -> None:
+    if not np.any(contact_mask):
+        return
+    ymin, ymax = ax.get_ylim()
+    ax.fill_between(
+        t,
+        np.full_like(t, ymin),
+        np.full_like(t, ymax),
+        where=contact_mask,
+        color=CONTACT_SHADE,
+        alpha=0.18,
+        step="mid",
+        zorder=0,
+    )
+    ax.set_ylim(ymin, ymax)
+
+
+def binned_median_curve(x: np.ndarray, y: np.ndarray, bins: int = 12) -> Tuple[np.ndarray, np.ndarray]:
+    if x.size < bins:
+        return np.asarray([]), np.asarray([])
+    edges = np.quantile(x, np.linspace(0.0, 1.0, bins + 1))
+    edges = np.unique(edges)
+    if edges.size < 3:
+        return np.asarray([]), np.asarray([])
+    mids: List[float] = []
+    meds: List[float] = []
+    for left, right in zip(edges[:-1], edges[1:]):
+        mask = (x >= left) & (x <= right if right == edges[-1] else x < right)
+        if np.count_nonzero(mask) < 3:
+            continue
+        mids.append(float(np.median(x[mask])))
+        meds.append(float(np.median(y[mask])))
+    return np.asarray(mids), np.asarray(meds)
+
+
 def plot_time_series(data: Dict[str, Dict[str, np.ndarray]]) -> None:
-    fig, axes = plt.subplots(len(STATIC_DYNAMIC_PAIRS), len(SCENARIO_ORDER), figsize=(12.5, 10.5), sharex="col")
-    static_color = "#2f55d4"
-    dynamic_color = "#d94841"
+    fig, axes = plt.subplots(
+        len(STATIC_DYNAMIC_PAIRS),
+        len(SCENARIO_ORDER),
+        figsize=(FULL_WIDTH_IN, 8.2),
+        sharex="col",
+    )
+    panel_idx = 0
 
     for col, (scenario, label) in enumerate(SCENARIO_ORDER):
         series = data[scenario]
@@ -130,48 +219,49 @@ def plot_time_series(data: Dict[str, Dict[str, np.ndarray]]) -> None:
         for row, (static_key, dynamic_key, static_label, dynamic_label) in enumerate(STATIC_DYNAMIC_PAIRS):
             ax = axes[row, col]
             ax2 = ax.twinx()
-            ax.plot(t, series[static_key], color=static_color, linewidth=1.5, label=static_label)
-            ax2.plot(t, series[dynamic_key], color=dynamic_color, linewidth=1.3, label=dynamic_label)
-            if np.any(contact_mask):
-                ymin, ymax = ax.get_ylim()
-                ax.fill_between(
-                    t,
-                    np.full_like(t, ymin),
-                    np.full_like(t, ymax),
-                    where=contact_mask,
-                    color="#d9d9d9",
-                    alpha=0.18,
-                    step="mid",
-                )
-                ax.set_ylim(ymin, ymax)
+            ax.plot(t, series[static_key], color=STATIC_COLOR, linewidth=1.2)
+            ax2.plot(t, series[dynamic_key], color=DYNAMIC_COLOR, linewidth=1.1, linestyle="--")
+            add_contact_band(ax, t, contact_mask)
+            decorate_panel(ax, panel_idx)
+            add_pair_tag(ax, f"{static_label} / {dynamic_label}")
+            panel_idx += 1
 
             if row == 0:
-                ax.set_title(label, fontsize=12, weight="bold")
+                ax.set_title(label, fontsize=9.0, fontweight="bold", pad=6)
             if col == 0:
-                ax.set_ylabel(static_label, color=static_color)
+                ax.set_ylabel(static_label, color=STATIC_COLOR)
             if col == len(SCENARIO_ORDER) - 1:
-                ax2.set_ylabel(dynamic_label, color=dynamic_color)
+                ax2.set_ylabel(dynamic_label, color=DYNAMIC_COLOR)
             if row == len(STATIC_DYNAMIC_PAIRS) - 1:
                 ax.set_xlabel("Time (s)")
 
-            ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.4)
+            ax.grid(True, linestyle="--", linewidth=0.55, alpha=0.3)
             apply_time_series_y_scale(ax, series[static_key])
             apply_time_series_y_scale(ax2, series[dynamic_key])
-            ax.tick_params(axis="y", colors=static_color)
-            ax2.tick_params(axis="y", colors=dynamic_color)
+            ax.tick_params(axis="y", colors=STATIC_COLOR, length=3)
+            ax2.tick_params(axis="y", colors=DYNAMIC_COLOR, length=3)
+            ax.tick_params(axis="x", length=3)
 
-    fig.suptitle("Instantaneous Static Errors and Dynamic Response", fontsize=14, weight="bold", y=0.995)
-    fig.tight_layout()
+    line_static = plt.Line2D([], [], color=STATIC_COLOR, linewidth=1.2, label="Static error")
+    line_dynamic = plt.Line2D([], [], color=DYNAMIC_COLOR, linewidth=1.1, linestyle="--", label="Dynamic response error")
+    band = plt.Rectangle((0, 0), 1, 1, fc=CONTACT_SHADE, alpha=0.18, label="Active-contact interval")
+    fig.legend(
+        handles=[line_static, line_dynamic, band],
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.995),
+        columnspacing=1.5,
+        handlelength=2.0,
+    )
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.965))
     save_figure(fig, "compressed_contact_static_dynamic_timeseries")
     plt.close(fig)
 
 
 def plot_correlation_scatter(data: Dict[str, Dict[str, np.ndarray]]) -> None:
-    fig, axes = plt.subplots(2, 2, figsize=(11.5, 9.0))
-    colors = {
-        "tilted_plate_impact": "#1f77b4",
-        "tilted_plate_slide": "#ff7f0e",
-    }
+    fig, axes = plt.subplots(2, 2, figsize=(FULL_WIDTH_IN, 5.75))
+    panel_idx = 0
 
     corr_rows = []
     for ax, (static_key, dynamic_key, static_label, dynamic_label) in zip(axes.flat, STATIC_DYNAMIC_PAIRS):
@@ -186,13 +276,15 @@ def plot_correlation_scatter(data: Dict[str, Dict[str, np.ndarray]]) -> None:
             y = y[mask]
             all_x.append(x)
             all_y.append(y)
+            style = SCENARIO_STYLE[scenario]
             ax.scatter(
                 x,
                 y,
-                s=18,
-                alpha=0.7,
-                color=colors[scenario],
-                label=scenario_label if static_key == "epsF" else None,
+                s=11,
+                alpha=0.38,
+                color=style["color"],
+                marker=style["marker"],
+                label=style["label"] if static_key == "epsF" else None,
                 edgecolors="none",
             )
             corr_rows.append((scenario, static_key, dynamic_key, pearson_corr(x, y)))
@@ -201,28 +293,33 @@ def plot_correlation_scatter(data: Dict[str, Dict[str, np.ndarray]]) -> None:
         y_all = np.concatenate(all_y) if all_y else np.asarray([])
         corr_all = pearson_corr(x_all, y_all)
         corr_rows.append(("all", static_key, dynamic_key, corr_all))
+        trend_x, trend_y = binned_median_curve(x_all, y_all)
 
         apply_log_like_scale(ax, x_all, "x")
         apply_log_like_scale(ax, y_all, "y")
+        if trend_x.size > 0:
+            ax.plot(trend_x, trend_y, color="#222222", linewidth=1.2, label="Median trend" if static_key == "epsF" else None)
         ax.set_xlabel(static_label)
         ax.set_ylabel(dynamic_label)
-        ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.35)
+        ax.set_title(f"{static_label} vs {dynamic_label}", pad=4)
+        ax.grid(True, linestyle="--", linewidth=0.55, alpha=0.28)
+        decorate_panel(ax, panel_idx)
+        panel_idx += 1
         ax.text(
-            0.03,
+            0.97,
             0.96,
             rf"$\rho={corr_all:.3f}$",
             transform=ax.transAxes,
-            ha="left",
+            ha="right",
             va="top",
             bbox={"facecolor": "white", "edgecolor": "#cccccc", "alpha": 0.9, "pad": 3},
         )
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
     if handles:
-        fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 1.02))
+        fig.legend(handles, labels, loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.5, 0.995))
 
-    fig.suptitle("Static-to-Dynamic Error Correlation", fontsize=14, weight="bold", y=0.99)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.955))
     save_figure(fig, "compressed_contact_static_dynamic_correlation")
     plt.close(fig)
 
@@ -253,9 +350,13 @@ def plot_correlation_scatter(data: Dict[str, Dict[str, np.ndarray]]) -> None:
 
 
 def plot_temporal_coherence(data: Dict[str, Dict[str, np.ndarray]]) -> None:
-    fig, axes = plt.subplots(len(TEMPORAL_PAIRS), len(SCENARIO_ORDER), figsize=(12.5, 8.8), sharex="col")
-    temporal_color = "#2c7a4b"
-    dynamic_color = "#7b3294"
+    fig, axes = plt.subplots(
+        len(TEMPORAL_PAIRS),
+        len(SCENARIO_ORDER),
+        figsize=(FULL_WIDTH_IN, 6.2),
+        sharex="col",
+    )
+    panel_idx = 0
 
     for col, (scenario, label) in enumerate(SCENARIO_ORDER):
         series = data[scenario]
@@ -265,38 +366,42 @@ def plot_temporal_coherence(data: Dict[str, Dict[str, np.ndarray]]) -> None:
         for row, (temporal_key, dynamic_key, temporal_label, dynamic_label) in enumerate(TEMPORAL_PAIRS):
             ax = axes[row, col]
             ax2 = ax.twinx()
-            ax.plot(t, series[temporal_key], color=temporal_color, linewidth=1.5, label=temporal_label)
-            ax2.plot(t, series[dynamic_key], color=dynamic_color, linewidth=1.3, label=dynamic_label)
-            if np.any(contact_mask):
-                ymin, ymax = ax.get_ylim()
-                ax.fill_between(
-                    t,
-                    np.full_like(t, ymin),
-                    np.full_like(t, ymax),
-                    where=contact_mask,
-                    color="#d9d9d9",
-                    alpha=0.18,
-                    step="mid",
-                )
-                ax.set_ylim(ymin, ymax)
+            ax.plot(t, series[temporal_key], color=TEMPORAL_COLOR, linewidth=1.2)
+            ax2.plot(t, series[dynamic_key], color=TEMPORAL_DYNAMIC_COLOR, linewidth=1.1, linestyle="--")
+            add_contact_band(ax, t, contact_mask)
+            decorate_panel(ax, panel_idx)
+            add_pair_tag(ax, f"{temporal_label} / {dynamic_label}")
+            panel_idx += 1
 
             if row == 0:
-                ax.set_title(label, fontsize=12, weight="bold")
+                ax.set_title(label, fontsize=9.0, fontweight="bold", pad=6)
             if col == 0:
-                ax.set_ylabel(temporal_label, color=temporal_color)
+                ax.set_ylabel(temporal_label, color=TEMPORAL_COLOR)
             if col == len(SCENARIO_ORDER) - 1:
-                ax2.set_ylabel(dynamic_label, color=dynamic_color)
+                ax2.set_ylabel(dynamic_label, color=TEMPORAL_DYNAMIC_COLOR)
             if row == len(TEMPORAL_PAIRS) - 1:
                 ax.set_xlabel("Time (s)")
 
-            ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.4)
+            ax.grid(True, linestyle="--", linewidth=0.55, alpha=0.3)
             apply_time_series_y_scale(ax, series[temporal_key])
             apply_time_series_y_scale(ax2, series[dynamic_key])
-            ax.tick_params(axis="y", colors=temporal_color)
-            ax2.tick_params(axis="y", colors=dynamic_color)
+            ax.tick_params(axis="y", colors=TEMPORAL_COLOR, length=3)
+            ax2.tick_params(axis="y", colors=TEMPORAL_DYNAMIC_COLOR, length=3)
+            ax.tick_params(axis="x", length=3)
 
-    fig.suptitle("Temporal Coherence and Dynamic Stability", fontsize=14, weight="bold", y=0.995)
-    fig.tight_layout()
+    line_temporal = plt.Line2D([], [], color=TEMPORAL_COLOR, linewidth=1.2, label="Temporal-coherence metric")
+    line_dynamic = plt.Line2D([], [], color=TEMPORAL_DYNAMIC_COLOR, linewidth=1.1, linestyle="--", label="Dynamic response error")
+    band = plt.Rectangle((0, 0), 1, 1, fc=CONTACT_SHADE, alpha=0.18, label="Active-contact interval")
+    fig.legend(
+        handles=[line_temporal, line_dynamic, band],
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.995),
+        columnspacing=1.4,
+        handlelength=2.0,
+    )
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.955))
     save_figure(fig, "compressed_contact_temporal_coherence")
     plt.close(fig)
 

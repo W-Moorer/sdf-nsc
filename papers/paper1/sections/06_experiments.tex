@@ -153,7 +153,7 @@
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/generated/compressed_contact_static_dynamic_timeseries.pdf}
-    \caption{静态误差与简单动力学误差的同步时序对比。灰色区间表示 dense 与 reduced 均存在活动接触。该图用于观察瞬时 $\varepsilon_F$、$\varepsilon_M$、$\varepsilon_{\mathrm{CoP}}$、$\varepsilon_g$ 与线冲量误差、角冲量误差、角速度误差和能量漂移差在同一时间轴上的耦合关系。}
+    \caption{静态误差与简单动力学误差的同步时序对比。每一行对应一对静态--动态指标，每一列对应一个动态场景，灰色区间表示活动接触。该图用于观察 $\varepsilon_F$、$\varepsilon_M$、$\varepsilon_{\mathrm{CoP}}$、$\varepsilon_g$ 的峰值是否与线冲量误差、角冲量误差、角速度误差和能量漂移差的峰值在时间上对应。}
     \label{fig:static_dynamic_timeseries}
 \end{figure}
 
@@ -162,7 +162,7 @@
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/generated/compressed_contact_static_dynamic_correlation.pdf}
-    \caption{静态误差到简单动力学误差的散点相关图。每个点对应一个时间步的活动接触状态，图中同时给出 Pearson 相关系数，用于辅助判断瞬时静态误差与动力学偏差之间的统计联系。}
+    \caption{静态误差到简单动力学误差的逐时间步散点图。每个点对应一个活动接触时间步，黑色曲线表示分箱中位趋势，角标给出整体 Pearson 相关系数。该图用于评估瞬时静态误差与动力学偏差之间的统计联系，并识别哪些偏差不能仅由单一静态指标解释。}
     \label{fig:static_dynamic_correlation}
 \end{figure}
 
@@ -171,7 +171,7 @@
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/generated/compressed_contact_temporal_coherence.pdf}
-    \caption{时序连续性与简单动力学稳定性的对应关系。当前原型验证表明，reduced support 的连续性退化会直接放大角速度与冲量层面的动态误差，因此动力学精度应被理解为“瞬时静态等效 + 时序连续性”的联合结果。}
+    \caption{时序连续性与简单动力学稳定性的对应关系。每一行对应一对连续性--动态指标，灰色区间表示活动接触。该图用于说明 reduced support 的 Hausdorff 漂移、平均漂移和 churn 会如何放大角速度与冲量层面的动态误差，因此动力学精度应被理解为“瞬时静态等效 + 时序连续性”的联合结果。}
     \label{fig:temporal_coherence_dynamics}
 \end{figure}
 
