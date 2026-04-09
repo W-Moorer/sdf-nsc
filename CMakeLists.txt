@@ -273,6 +273,12 @@ if(SPCC_ENABLE_VDB)
     target_link_options(validate_compressed_contact PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
 endif()
 
+add_executable(validate_compressed_contact_dynamics apps/validate_compressed_contact_dynamics/main.cpp)
+target_link_libraries(validate_compressed_contact_dynamics PRIVATE platform_backend Chrono::Chrono_core)
+if(SPCC_ENABLE_VDB)
+    target_link_options(validate_compressed_contact_dynamics PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
+endif()
+
 # Offline tool to adaptively convert obj to vdb and extract surface
 add_executable(mesh2vdb apps/mesh2vdb/main.cpp)
 target_link_libraries(mesh2vdb PRIVATE platform_backend Half)

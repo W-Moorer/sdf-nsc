@@ -111,13 +111,13 @@ double WorstGap(const std::vector<ReducedContactPoint>& points) {
     return worst_gap;
 }
 
-void BuildDenseContacts(const CompressedContactConfig& cfg,
-                        const std::vector<DenseSurfaceSample>& slave_surface_samples,
-                        const RigidBodyStateW& master_state,
-                        const RigidBodyStateW& slave_state,
-                        const FirstOrderSDF& sdf,
-                        double step_size,
-                        std::vector<DenseValidationContact>& out_dense_contacts) {
+void BuildDenseContactsImpl(const CompressedContactConfig& cfg,
+                            const std::vector<DenseSurfaceSample>& slave_surface_samples,
+                            const RigidBodyStateW& master_state,
+                            const RigidBodyStateW& slave_state,
+                            const FirstOrderSDF& sdf,
+                            double step_size,
+                            std::vector<DenseValidationContact>& out_dense_contacts) {
     out_dense_contacts.clear();
     out_dense_contacts.reserve(slave_surface_samples.size());
 
@@ -192,6 +192,17 @@ CompressionWrenchSummary SummarizeReduced(const std::vector<ReducedContactPoint>
 
 }  // namespace
 
+void CompressedContactValidation::BuildDenseContacts(const CompressedContactConfig& cfg,
+                                                     const std::vector<DenseSurfaceSample>& slave_surface_samples,
+                                                     const RigidBodyStateW& master_state,
+                                                     const RigidBodyStateW& slave_state,
+                                                     const FirstOrderSDF& sdf,
+                                                     double step_size,
+                                                     std::vector<DenseValidationContact>& out_dense_contacts) {
+    BuildDenseContactsImpl(cfg, slave_surface_samples, master_state, slave_state, sdf, step_size,
+                           out_dense_contacts);
+}
+
 void CompressedContactValidation::Validate(const CompressedContactConfig& cfg,
                                            const std::vector<DenseSurfaceSample>& slave_surface_samples,
                                            const RigidBodyStateW& master_state,
@@ -202,8 +213,8 @@ void CompressedContactValidation::Validate(const CompressedContactConfig& cfg,
                                            CompressionValidationReport& out_report) {
     out_report = CompressionValidationReport{};
 
-    BuildDenseContacts(cfg, slave_surface_samples, master_state, slave_state, sdf, step_size,
-                       out_report.dense_contacts);
+    BuildDenseContactsImpl(cfg, slave_surface_samples, master_state, slave_state, sdf, step_size,
+                           out_report.dense_contacts);
 
     CompressedContactPipeline pipeline;
     pipeline.Configure(cfg);

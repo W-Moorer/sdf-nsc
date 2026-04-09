@@ -42,6 +42,14 @@ struct CompressionValidationReport {
 
 class CompressedContactValidation {
   public:
+    static void BuildDenseContacts(const CompressedContactConfig& cfg,
+                                   const std::vector<DenseSurfaceSample>& slave_surface_samples,
+                                   const RigidBodyStateW& master_state,
+                                   const RigidBodyStateW& slave_state,
+                                   const FirstOrderSDF& sdf,
+                                   double step_size,
+                                   std::vector<DenseValidationContact>& out_dense_contacts);
+
     static void Validate(const CompressedContactConfig& cfg,
                          const std::vector<DenseSurfaceSample>& slave_surface_samples,
                          const RigidBodyStateW& master_state,
