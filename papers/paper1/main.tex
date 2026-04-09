@@ -11,6 +11,14 @@
 \usepackage{indentfirst}
 \usepackage{xcolor}
 \usepackage{longtable}
+\usepackage{unicode-math}
+
+\IfFontExistsTF{Times New Roman}{
+    \setmainfont{Times New Roman}
+}{
+    \setmainfont{TeX Gyre Termes}
+}
+\setmathfont{TeX Gyre Termes Math}
 
 \setlength{\parindent}{2em}
 \linespread{1.2}

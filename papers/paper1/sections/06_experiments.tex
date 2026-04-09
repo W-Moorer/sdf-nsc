@@ -144,6 +144,37 @@
     \item 消融实验表格与复杂度统计表。
 \end{itemize}
 
+\subsection{当前原型结果：静态与简单动力学的对应性}
+
+基于当前实现，本文已经补充三组可直接纳入论文的原型验证图，用于把瞬时静态误差、简单动力学偏差和时序连续性放到同一证据链下进行讨论。这里的目标不是声称“静态误差单独决定动力学精度”，而是说明在当前一阶 SDF 原型中，动力学偏差来源于\textbf{瞬时 wrench 等效误差与时序连续性退化的共同作用}。
+
+第一组图给出同一动态场景中的同步时序曲线，把每一步的 $\varepsilon_F$、$\varepsilon_M$、$\varepsilon_{\mathrm{CoP}}$、$\varepsilon_g$ 与对应的线冲量误差、角冲量误差、角速度误差和能量漂移差放在同一时间轴上，用于识别静态误差峰值与动力学偏差峰值的对应关系。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/generated/compressed_contact_static_dynamic_timeseries.pdf}
+    \caption{静态误差与简单动力学误差的同步时序对比。灰色区间表示 dense 与 reduced 均存在活动接触。该图用于观察瞬时 $\varepsilon_F$、$\varepsilon_M$、$\varepsilon_{\mathrm{CoP}}$、$\varepsilon_g$ 与线冲量误差、角冲量误差、角速度误差和能量漂移差在同一时间轴上的耦合关系。}
+    \label{fig:static_dynamic_timeseries}
+\end{figure}
+
+第二组图给出静态指标与动力学指标的散点相关图。它不要求全局线性相关很强，而是用于回答“哪些动力学偏差更容易由哪些静态误差触发”。在当前原型中，散点图更适合作为误差归因工具，而不是单一因果证明。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/generated/compressed_contact_static_dynamic_correlation.pdf}
+    \caption{静态误差到简单动力学误差的散点相关图。每个点对应一个时间步的活动接触状态，图中同时给出 Pearson 相关系数，用于辅助判断瞬时静态误差与动力学偏差之间的统计联系。}
+    \label{fig:static_dynamic_correlation}
+\end{figure}
+
+第三组图补充时序连续性指标，包括 reduced support set 的 Hausdorff 漂移、平均支撑点漂移和 support churn，并将其与角速度误差、角冲量误差和线冲量误差放在同一图中。该图用于强调：如果不显式控制时序连续性，即便单步静态误差较小，动力学响应仍可能出现较大抖动。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/generated/compressed_contact_temporal_coherence.pdf}
+    \caption{时序连续性与简单动力学稳定性的对应关系。当前原型验证表明，reduced support 的连续性退化会直接放大角速度与冲量层面的动态误差，因此动力学精度应被理解为“瞬时静态等效 + 时序连续性”的联合结果。}
+    \label{fig:temporal_coherence_dynamics}
+\end{figure}
+
 \subsection{预期结果与讨论重点}
 
 本文预期结果包括：

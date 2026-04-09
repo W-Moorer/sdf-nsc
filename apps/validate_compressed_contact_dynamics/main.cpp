@@ -1,8 +1,10 @@
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -82,6 +84,10 @@ struct BodyKinematics {
 
 struct StepMetrics {
     double time = 0.0;
+    double epsF = 0.0;
+    double epsM = 0.0;
+    double epsCoP = 0.0;
+    double epsGap = 0.0;
     double pos_error = 0.0;
     double vel_error = 0.0;
     double ang_vel_error = 0.0;
@@ -90,24 +96,44 @@ struct StepMetrics {
     double energy_dense = 0.0;
     double energy_reduced = 0.0;
     double energy_drift_diff = 0.0;
+    double temporal_hausdorff = 0.0;
+    double temporal_mean_drift = 0.0;
+    double support_churn = 0.0;
+    std::size_t patch_count = 0;
     std::size_t dense_contacts = 0;
     std::size_t reduced_contacts = 0;
 };
 
 struct ScenarioSummary {
+    double max_epsF = 0.0;
+    double max_epsM = 0.0;
+    double max_epsCoP = 0.0;
+    double max_epsGap = 0.0;
     double max_pos_error = 0.0;
     double max_vel_error = 0.0;
     double max_ang_vel_error = 0.0;
     double max_linear_impulse_error = 0.0;
     double max_angular_impulse_error = 0.0;
     double max_energy_drift_diff = 0.0;
+    double max_temporal_hausdorff = 0.0;
+    double max_temporal_mean_drift = 0.0;
+    double max_support_churn = 0.0;
     double max_contact_pos_error = 0.0;
     double max_contact_vel_error = 0.0;
     double max_contact_ang_vel_error = 0.0;
     double max_contact_linear_impulse_error = 0.0;
     double max_contact_angular_impulse_error = 0.0;
     double max_contact_energy_drift_diff = 0.0;
+    double max_contact_temporal_hausdorff = 0.0;
+    double max_contact_temporal_mean_drift = 0.0;
+    double max_contact_support_churn = 0.0;
     int contact_steps = 0;
+};
+
+struct TemporalCoherenceMetrics {
+    double hausdorff = 0.0;
+    double mean_drift = 0.0;
+    double support_churn = 0.0;
 };
 
 chrono::ChVector3d Normalized(const chrono::ChVector3d& v) {
@@ -281,6 +307,64 @@ chrono::ChVector3d ComputeAngularImpulse(const BodyKinematics& before,
     return L_after - L_before;
 }
 
+double NearestContactDistance(const ReducedContactPoint& query,
+                              const std::vector<ReducedContactPoint>& supports) {
+    if (supports.empty()) {
+        return 0.0;
+    }
+
+    double best = std::numeric_limits<double>::infinity();
+    for (const auto& support : supports) {
+        best = std::min(best, (query.x_W - support.x_W).Length());
+    }
+    return std::isfinite(best) ? best : 0.0;
+}
+
+double DirectedHausdorffDistance(const std::vector<ReducedContactPoint>& from,
+                                 const std::vector<ReducedContactPoint>& to) {
+    if (from.empty() || to.empty()) {
+        return 0.0;
+    }
+
+    double directed = 0.0;
+    for (const auto& point : from) {
+        directed = std::max(directed, NearestContactDistance(point, to));
+    }
+    return directed;
+}
+
+TemporalCoherenceMetrics ComputeTemporalCoherence(const std::vector<ReducedContactPoint>& previous_supports,
+                                                  const std::vector<ReducedContactPoint>& current_supports,
+                                                  double match_radius) {
+    TemporalCoherenceMetrics metrics;
+    if (previous_supports.empty() && current_supports.empty()) {
+        return metrics;
+    }
+
+    if (previous_supports.empty() || current_supports.empty()) {
+        metrics.support_churn = 1.0;
+        return metrics;
+    }
+
+    metrics.hausdorff = std::max(DirectedHausdorffDistance(previous_supports, current_supports),
+                                 DirectedHausdorffDistance(current_supports, previous_supports));
+
+    double sum_drift = 0.0;
+    std::size_t matched = 0;
+    for (const auto& point : current_supports) {
+        const double drift = NearestContactDistance(point, previous_supports);
+        sum_drift += drift;
+        if (match_radius > 0.0 && drift <= match_radius) {
+            ++matched;
+        }
+    }
+    metrics.mean_drift = sum_drift / static_cast<double>(current_supports.size());
+    metrics.support_churn =
+        1.0 - static_cast<double>(matched) /
+                  static_cast<double>(std::max(previous_supports.size(), current_supports.size()));
+    return metrics;
+}
+
 class ValidationCollisionCallback : public chrono::ChSystem::CustomCollisionCallback {
   public:
     ValidationCollisionCallback(std::shared_ptr<chrono::ChBody> master,
@@ -305,10 +389,12 @@ class ValidationCollisionCallback : public chrono::ChSystem::CustomCollisionCall
 
     std::size_t last_contact_count = 0;
     CompressionStats last_stats;
+    std::vector<ReducedContactPoint> last_reduced_contacts;
 
     void OnCustomCollision(chrono::ChSystem* sys) override {
         last_contact_count = 0;
         last_stats = CompressionStats{};
+        last_reduced_contacts.clear();
         if (!master_ || !slave_ || !sdf_ || !samples_) {
             return;
         }
@@ -357,6 +443,7 @@ class ValidationCollisionCallback : public chrono::ChSystem::CustomCollisionCall
             sys->GetContactContainer()->AddContact(cinfo, material_, material_);
             ++last_contact_count;
         }
+        last_reduced_contacts = reduced_contacts;
     }
 
   private:
@@ -427,12 +514,17 @@ void WriteCsv(const std::string& path,
     const bool append = fs::exists(out_path);
     std::ofstream out(path, append ? std::ios::app : std::ios::trunc);
     if (!append) {
-        out << "scenario,time,pos_error,vel_error,ang_vel_error,linear_impulse_error,angular_impulse_error,"
-               "energy_dense,energy_reduced,energy_drift_diff,dense_contacts,reduced_contacts\n";
+        out << "scenario,time,epsF,epsM,epsCoP,epsGap,pos_error,vel_error,ang_vel_error,linear_impulse_error,"
+               "angular_impulse_error,energy_dense,energy_reduced,energy_drift_diff,temporal_hausdorff,"
+               "temporal_mean_drift,support_churn,patch_count,dense_contacts,reduced_contacts\n";
     }
     for (const auto& step : steps) {
         out << scenario_name << ','
             << step.time << ','
+            << step.epsF << ','
+            << step.epsM << ','
+            << step.epsCoP << ','
+            << step.epsGap << ','
             << step.pos_error << ','
             << step.vel_error << ','
             << step.ang_vel_error << ','
@@ -441,6 +533,10 @@ void WriteCsv(const std::string& path,
             << step.energy_dense << ','
             << step.energy_reduced << ','
             << step.energy_drift_diff << ','
+            << step.temporal_hausdorff << ','
+            << step.temporal_mean_drift << ','
+            << step.support_churn << ','
+            << step.patch_count << ','
             << step.dense_contacts << ','
             << step.reduced_contacts << '\n';
     }
@@ -457,6 +553,7 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
     std::vector<StepMetrics> steps;
     steps.reserve(static_cast<std::size_t>(scenario.steps));
     ScenarioSummary summary;
+    std::vector<ReducedContactPoint> previous_reduced_supports;
 
     for (int step_index = 0; step_index < scenario.steps; ++step_index) {
         const auto dense_before = CaptureKinematics(dense_sim.slave);
@@ -470,6 +567,10 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
 
         StepMetrics step;
         step.time = (step_index + 1) * scenario.step_size;
+        step.epsF = reduced_sim.callback->last_stats.epsilon_F;
+        step.epsM = reduced_sim.callback->last_stats.epsilon_M;
+        step.epsCoP = reduced_sim.callback->last_stats.epsilon_CoP;
+        step.epsGap = reduced_sim.callback->last_stats.epsilon_gap;
         step.pos_error = (dense_after.pos_W - reduced_after.pos_W).Length();
         step.vel_error = (dense_after.vel_W - reduced_after.vel_W).Length();
         step.ang_vel_error = (dense_after.w_W - reduced_after.w_W).Length();
@@ -484,10 +585,22 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
         step.energy_reduced = ComputeEnergy(reduced_after, scenario.gravity_W);
         step.energy_drift_diff =
             std::abs((step.energy_dense - dense_initial_energy) - (step.energy_reduced - reduced_initial_energy));
+        const auto temporal_metrics = ComputeTemporalCoherence(previous_reduced_supports,
+                                                               reduced_sim.callback->last_reduced_contacts,
+                                                               scenario.cfg.warm_start_match_radius);
+        step.temporal_hausdorff = temporal_metrics.hausdorff;
+        step.temporal_mean_drift = temporal_metrics.mean_drift;
+        step.support_churn = temporal_metrics.support_churn;
+        step.patch_count = reduced_sim.callback->last_stats.patch_count;
         step.dense_contacts = dense_sim.callback->last_contact_count;
         step.reduced_contacts = reduced_sim.callback->last_contact_count;
         steps.push_back(step);
+        previous_reduced_supports = reduced_sim.callback->last_reduced_contacts;
 
+        summary.max_epsF = std::max(summary.max_epsF, step.epsF);
+        summary.max_epsM = std::max(summary.max_epsM, step.epsM);
+        summary.max_epsCoP = std::max(summary.max_epsCoP, step.epsCoP);
+        summary.max_epsGap = std::max(summary.max_epsGap, step.epsGap);
         summary.max_pos_error = std::max(summary.max_pos_error, step.pos_error);
         summary.max_vel_error = std::max(summary.max_vel_error, step.vel_error);
         summary.max_ang_vel_error = std::max(summary.max_ang_vel_error, step.ang_vel_error);
@@ -497,6 +610,11 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
             std::max(summary.max_angular_impulse_error, step.angular_impulse_error);
         summary.max_energy_drift_diff =
             std::max(summary.max_energy_drift_diff, step.energy_drift_diff);
+        summary.max_temporal_hausdorff =
+            std::max(summary.max_temporal_hausdorff, step.temporal_hausdorff);
+        summary.max_temporal_mean_drift =
+            std::max(summary.max_temporal_mean_drift, step.temporal_mean_drift);
+        summary.max_support_churn = std::max(summary.max_support_churn, step.support_churn);
 
         if (step.dense_contacts > 0 || step.reduced_contacts > 0) {
             ++summary.contact_steps;
@@ -510,6 +628,12 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
                 std::max(summary.max_contact_angular_impulse_error, step.angular_impulse_error);
             summary.max_contact_energy_drift_diff =
                 std::max(summary.max_contact_energy_drift_diff, step.energy_drift_diff);
+            summary.max_contact_temporal_hausdorff =
+                std::max(summary.max_contact_temporal_hausdorff, step.temporal_hausdorff);
+            summary.max_contact_temporal_mean_drift =
+                std::max(summary.max_contact_temporal_mean_drift, step.temporal_mean_drift);
+            summary.max_contact_support_churn =
+                std::max(summary.max_contact_support_churn, step.support_churn);
         }
     }
 
@@ -562,12 +686,19 @@ int main(int argc, char* argv[]) {
         const auto summary = RunScenario(scenario, csv_path);
         std::cout << scenario.name << '\n';
         std::cout << "  desc                  : " << scenario.description << '\n';
+        std::cout << "  max_epsF              : " << std::setprecision(8) << summary.max_epsF << '\n';
+        std::cout << "  max_epsM              : " << summary.max_epsM << '\n';
+        std::cout << "  max_epsCoP            : " << summary.max_epsCoP << '\n';
+        std::cout << "  max_epsGap            : " << summary.max_epsGap << '\n';
         std::cout << "  max_pos_error         : " << std::setprecision(8) << summary.max_pos_error << '\n';
         std::cout << "  max_vel_error         : " << summary.max_vel_error << '\n';
         std::cout << "  max_ang_vel_error     : " << summary.max_ang_vel_error << '\n';
         std::cout << "  max_linear_imp_error  : " << summary.max_linear_impulse_error << '\n';
         std::cout << "  max_angular_imp_error : " << summary.max_angular_impulse_error << '\n';
         std::cout << "  max_energy_drift_diff : " << summary.max_energy_drift_diff << '\n';
+        std::cout << "  max_temporal_H        : " << summary.max_temporal_hausdorff << '\n';
+        std::cout << "  max_temporal_mean     : " << summary.max_temporal_mean_drift << '\n';
+        std::cout << "  max_support_churn     : " << summary.max_support_churn << '\n';
         std::cout << "  contact_steps         : " << summary.contact_steps << '\n';
         std::cout << "  contact_max_pos_error : " << summary.max_contact_pos_error << '\n';
         std::cout << "  contact_max_vel_error : " << summary.max_contact_vel_error << '\n';
@@ -575,6 +706,9 @@ int main(int argc, char* argv[]) {
         std::cout << "  contact_max_lin_imp   : " << summary.max_contact_linear_impulse_error << '\n';
         std::cout << "  contact_max_ang_imp   : " << summary.max_contact_angular_impulse_error << '\n';
         std::cout << "  contact_max_Ediff     : " << summary.max_contact_energy_drift_diff << '\n';
+        std::cout << "  contact_max_H         : " << summary.max_contact_temporal_hausdorff << '\n';
+        std::cout << "  contact_max_mean      : " << summary.max_contact_temporal_mean_drift << '\n';
+        std::cout << "  contact_max_churn     : " << summary.max_contact_support_churn << '\n';
     }
 
     std::cout << "dynamics_csv : " << csv_path << '\n';
