@@ -81,6 +81,14 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
     cfg.patch_radius = GetScopedEnvDouble(env_prefix, "PATCH_RADIUS", cfg.patch_radius);
     cfg.normal_cos_min = GetScopedEnvDouble(env_prefix, "NORMAL_COS_MIN", cfg.normal_cos_min);
     cfg.max_patch_diameter = GetScopedEnvDouble(env_prefix, "MAX_PATCH_DIAMETER", cfg.max_patch_diameter);
+    cfg.max_subpatch_diameter =
+        GetScopedEnvDouble(env_prefix, "MAX_SUBPATCH_DIAMETER", cfg.max_subpatch_diameter);
+    cfg.max_plane_error = GetScopedEnvDouble(env_prefix, "MAX_PLANE_ERROR", cfg.max_plane_error);
+    cfg.sentinel_spacing = GetScopedEnvDouble(env_prefix, "SENTINEL_SPACING", cfg.sentinel_spacing);
+    cfg.sentinel_margin = GetScopedEnvDouble(env_prefix, "SENTINEL_MARGIN", cfg.sentinel_margin);
+    cfg.max_subpatch_depth = GetScopedEnvInt(env_prefix, "MAX_SUBPATCH_DEPTH", cfg.max_subpatch_depth);
+    cfg.min_dense_points_per_subpatch =
+        GetScopedEnvInt(env_prefix, "MIN_DENSE_POINTS_PER_SUBPATCH", cfg.min_dense_points_per_subpatch);
     cfg.max_reduced_points_per_patch =
         GetScopedEnvInt(env_prefix, "MAX_REDUCED_POINTS_PER_PATCH", cfg.max_reduced_points_per_patch);
     cfg.warm_start_match_radius =

@@ -17,6 +17,7 @@ namespace spcc {
 
 struct ReducedContactPoint {
     std::size_t patch_id = 0;
+    std::size_t subpatch_id = 0;
     std::size_t support_id = 0;
     std::size_t dense_members = 0;
 
@@ -39,6 +40,7 @@ struct CompressionStats {
     std::size_t dense_count = 0;
     std::size_t reduced_count = 0;
     std::size_t patch_count = 0;
+    std::size_t subpatch_count = 0;
     std::size_t bvh_nodes_visited = 0;
     std::size_t bvh_nodes_pruned_obb = 0;
     std::size_t bvh_nodes_pruned_sdf = 0;
@@ -47,6 +49,8 @@ struct CompressionStats {
     double epsilon_M = 0.0;
     double epsilon_CoP = 0.0;
     double epsilon_gap = 0.0;
+    double max_subpatch_plane_error = 0.0;
+    double max_subpatch_gap_error = 0.0;
 };
 
 class CompressedContactPipeline {

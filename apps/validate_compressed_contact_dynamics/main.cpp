@@ -100,8 +100,11 @@ struct StepMetrics {
     double temporal_mean_drift = 0.0;
     double support_churn = 0.0;
     std::size_t patch_count = 0;
+    std::size_t subpatch_count = 0;
     std::size_t dense_contacts = 0;
     std::size_t reduced_contacts = 0;
+    double max_subpatch_plane_error = 0.0;
+    double max_subpatch_gap_error = 0.0;
 };
 
 struct ScenarioSummary {
@@ -191,11 +194,21 @@ CompressedContactConfig MakeDynamicConfig() {
     cfg.delta_on = 4.0e-3;
     cfg.delta_off = 5.0e-3;
     cfg.max_active_dense = 0;
-    cfg.patch_radius = 1.5e-2;
+    cfg.bvh_leaf_size = 24;
+    cfg.bvh_query_margin = 2.0e-3;
+    cfg.bvh_velocity_bound_scale = 1.0;
+    cfg.bvh_enable_sdf_node_bound = true;
+    cfg.patch_radius = 4.0e-2;
     cfg.normal_cos_min = 0.93;
-    cfg.max_patch_diameter = 1.8e-2;
-    cfg.max_reduced_points_per_patch = 8;
-    cfg.warm_start_match_radius = 4.0e-3;
+    cfg.max_patch_diameter = 8.0e-2;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
+    cfg.max_reduced_points_per_patch = 4;
+    cfg.warm_start_match_radius = 6.0e-3;
     cfg.max_wrench_error = 0.08;
     cfg.max_cop_error = 2.5e-3;
     cfg.max_gap_error = 0.25;
@@ -516,7 +529,8 @@ void WriteCsv(const std::string& path,
     if (!append) {
         out << "scenario,time,epsF,epsM,epsCoP,epsGap,pos_error,vel_error,ang_vel_error,linear_impulse_error,"
                "angular_impulse_error,energy_dense,energy_reduced,energy_drift_diff,temporal_hausdorff,"
-               "temporal_mean_drift,support_churn,patch_count,dense_contacts,reduced_contacts\n";
+               "temporal_mean_drift,support_churn,patch_count,subpatch_count,dense_contacts,reduced_contacts,"
+               "max_subpatch_plane_error,max_subpatch_gap_error\n";
     }
     for (const auto& step : steps) {
         out << scenario_name << ','
@@ -537,8 +551,11 @@ void WriteCsv(const std::string& path,
             << step.temporal_mean_drift << ','
             << step.support_churn << ','
             << step.patch_count << ','
+            << step.subpatch_count << ','
             << step.dense_contacts << ','
-            << step.reduced_contacts << '\n';
+            << step.reduced_contacts << ','
+            << step.max_subpatch_plane_error << ','
+            << step.max_subpatch_gap_error << '\n';
     }
 }
 
@@ -592,8 +609,11 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
         step.temporal_mean_drift = temporal_metrics.mean_drift;
         step.support_churn = temporal_metrics.support_churn;
         step.patch_count = reduced_sim.callback->last_stats.patch_count;
+        step.subpatch_count = reduced_sim.callback->last_stats.subpatch_count;
         step.dense_contacts = dense_sim.callback->last_contact_count;
         step.reduced_contacts = reduced_sim.callback->last_contact_count;
+        step.max_subpatch_plane_error = reduced_sim.callback->last_stats.max_subpatch_plane_error;
+        step.max_subpatch_gap_error = reduced_sim.callback->last_stats.max_subpatch_gap_error;
         steps.push_back(step);
         previous_reduced_supports = reduced_sim.callback->last_reduced_contacts;
 

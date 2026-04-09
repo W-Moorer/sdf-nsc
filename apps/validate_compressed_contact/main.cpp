@@ -135,9 +135,19 @@ CompressedContactConfig MakeValidationConfig() {
     cfg.delta_on = 5.0e-3;
     cfg.delta_off = 6.0e-3;
     cfg.max_active_dense = 0;
+    cfg.bvh_leaf_size = 24;
+    cfg.bvh_query_margin = 3.0e-3;
+    cfg.bvh_velocity_bound_scale = 1.0;
+    cfg.bvh_enable_sdf_node_bound = true;
     cfg.patch_radius = 0.05;
     cfg.normal_cos_min = 0.95;
     cfg.max_patch_diameter = 0.14;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 6.0e-3;
+    cfg.sentinel_margin = 1.5e-3;
+    cfg.max_subpatch_depth = 4;
+    cfg.min_dense_points_per_subpatch = 16;
     cfg.max_reduced_points_per_patch = 4;
     cfg.warm_start_match_radius = 2.0e-3;
     cfg.max_wrench_error = 0.08;
@@ -154,6 +164,8 @@ ScenarioDefinition MakeFlatSquareScenario() {
     s.cfg = MakeValidationConfig();
     s.cfg.patch_radius = 0.06;
     s.cfg.max_patch_diameter = 0.08;
+    s.cfg.max_subpatch_diameter = 0.05;
+    s.cfg.max_plane_error = 1.0e-4;
     s.samples = BuildRectSamples(chrono::ChVector3d(0.0, -2.0e-3, 0.0),
                                  chrono::ChVector3d(1.0, 0.0, 0.0),
                                  chrono::ChVector3d(0.0, 0.0, 1.0),
@@ -169,6 +181,8 @@ ScenarioDefinition MakeTiltedSquareScenario() {
     s.cfg = MakeValidationConfig();
     s.cfg.patch_radius = 0.07;
     s.cfg.max_patch_diameter = 0.09;
+    s.cfg.max_subpatch_diameter = 0.06;
+    s.cfg.max_plane_error = 3.0e-4;
     const chrono::ChVector3d n_W = Normalized(chrono::ChVector3d(0.35, 1.0, 0.15));
     chrono::ChVector3d t1_W;
     chrono::ChVector3d t2_W;
@@ -186,6 +200,8 @@ ScenarioDefinition MakeLongStripScenario() {
     s.cfg = MakeValidationConfig();
     s.cfg.patch_radius = 0.08;
     s.cfg.max_patch_diameter = 0.14;
+    s.cfg.max_subpatch_diameter = 3.5e-2;
+    s.cfg.max_plane_error = 1.0e-4;
     s.samples = BuildRectSamples(chrono::ChVector3d(0.0, -1.5e-3, 0.0),
                                  chrono::ChVector3d(1.0, 0.0, 0.0),
                                  chrono::ChVector3d(0.0, 0.0, 1.0),
@@ -201,6 +217,8 @@ ScenarioDefinition MakeDualPatchScenario() {
     s.cfg = MakeValidationConfig();
     s.cfg.patch_radius = 0.025;
     s.cfg.max_patch_diameter = 0.05;
+    s.cfg.max_subpatch_diameter = 0.03;
+    s.cfg.max_plane_error = 1.0e-4;
     s.expected_patch_count = 2;
 
     auto left = BuildRectSamples(chrono::ChVector3d(-4.0e-2, -1.5e-3, 0.0),
@@ -225,6 +243,8 @@ ScenarioDefinition MakeCylinderBandScenario() {
     s.cfg.patch_radius = 0.06;
     s.cfg.normal_cos_min = 0.92;
     s.cfg.max_patch_diameter = 0.09;
+    s.cfg.max_subpatch_diameter = 2.5e-2;
+    s.cfg.max_plane_error = 1.0e-3;
     s.cfg.max_wrench_error = 0.12;
     s.cfg.max_cop_error = 3.5e-3;
     s.samples = BuildRectSamples(chrono::ChVector3d(4.8e-2, 0.0, 0.0),
@@ -266,9 +286,9 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
 
     std::ofstream out(path);
     out << "scenario,description,total_samples,candidate_count,dense_count,reduced_count,compression_ratio,"
-           "patch_count,expected_patch_count,bvh_nodes_visited,bvh_nodes_pruned_obb,bvh_nodes_pruned_sdf,"
-           "bvh_leaf_samples_tested,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,dense_force_norm,reduced_force_norm,"
-           "dense_moment_norm,reduced_moment_norm,pass\n";
+           "patch_count,subpatch_count,expected_patch_count,bvh_nodes_visited,bvh_nodes_pruned_obb,bvh_nodes_pruned_sdf,"
+           "bvh_leaf_samples_tested,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,max_subpatch_plane_error,"
+           "max_subpatch_gap_error,dense_force_norm,reduced_force_norm,dense_moment_norm,reduced_moment_norm,pass\n";
     for (const auto& result : results) {
         const double dense_count = static_cast<double>(result.report.stats.dense_count);
         const double reduced_count = static_cast<double>(result.report.stats.reduced_count);
@@ -281,6 +301,7 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
             << result.report.stats.reduced_count << ','
             << ratio << ','
             << result.report.stats.patch_count << ','
+            << result.report.stats.subpatch_count << ','
             << result.definition.expected_patch_count << ','
             << result.report.stats.bvh_nodes_visited << ','
             << result.report.stats.bvh_nodes_pruned_obb << ','
@@ -290,6 +311,8 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
             << result.report.stats.epsilon_M << ','
             << result.report.stats.epsilon_CoP << ','
             << result.report.stats.epsilon_gap << ','
+            << result.report.stats.max_subpatch_plane_error << ','
+            << result.report.stats.max_subpatch_gap_error << ','
             << result.report.dense_wrench.force_W.Length() << ','
             << result.report.reduced_wrench.force_W.Length() << ','
             << result.report.dense_wrench.moment_at_origin_W.Length() << ','
@@ -314,11 +337,14 @@ void PrintScenarioResult(const ScenarioResult& result) {
               << " reduced=" << result.report.stats.reduced_count
               << " ratio=" << std::fixed << std::setprecision(4) << ratio << '\n';
     std::cout << "  patches         : actual=" << result.report.stats.patch_count
-              << " expected=" << result.definition.expected_patch_count << '\n';
+              << " expected=" << result.definition.expected_patch_count
+              << " subpatches=" << result.report.stats.subpatch_count << '\n';
     std::cout << "  errors          : epsF=" << result.report.stats.epsilon_F
               << " epsM=" << result.report.stats.epsilon_M
               << " epsCoP=" << result.report.stats.epsilon_CoP
-              << " epsGap=" << result.report.stats.epsilon_gap << '\n';
+              << " epsGap=" << result.report.stats.epsilon_gap
+              << " plane=" << result.report.stats.max_subpatch_plane_error
+              << " sentGap=" << result.report.stats.max_subpatch_gap_error << '\n';
     std::cout << "  dense wrench    : |F|=" << result.report.dense_wrench.force_W.Length()
               << " |M0|=" << result.report.dense_wrench.moment_at_origin_W.Length()
               << " CoP=(" << result.report.dense_wrench.cop_W.x() << ", "

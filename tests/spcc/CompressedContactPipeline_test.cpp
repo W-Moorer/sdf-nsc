@@ -62,6 +62,12 @@ TEST(CompressedContactPipelineTest, ReducesDensePatchIntoLimitedSupportPoints) {
     cfg.patch_radius = 0.2;
     cfg.normal_cos_min = 0.95;
     cfg.max_patch_diameter = 0.4;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
     cfg.max_reduced_points_per_patch = 4;
     pipeline.Configure(cfg);
 
@@ -88,6 +94,7 @@ TEST(CompressedContactPipelineTest, ReducesDensePatchIntoLimitedSupportPoints) {
     ASSERT_FALSE(reduced.empty());
     EXPECT_LE(reduced.size(), 4u);
     EXPECT_EQ(stats.patch_count, 1u);
+    EXPECT_EQ(stats.subpatch_count, 1u);
     for (const auto& contact : reduced) {
         EXPECT_LT(contact.phi, 0.0);
         EXPECT_NEAR(contact.n_W.y(), 1.0, 1.0e-9);
@@ -108,6 +115,12 @@ TEST(CompressedContactPipelineTest, UsesBVHToReduceExactDenseQueries) {
     cfg.patch_radius = 0.2;
     cfg.normal_cos_min = 0.8;
     cfg.max_patch_diameter = 0.4;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
     cfg.max_reduced_points_per_patch = 4;
     pipeline.Configure(cfg);
 
@@ -135,4 +148,50 @@ TEST(CompressedContactPipelineTest, UsesBVHToReduceExactDenseQueries) {
     EXPECT_EQ(stats.total_samples, samples.size());
     EXPECT_LT(stats.candidate_count, samples.size());
     EXPECT_GT(stats.bvh_nodes_pruned_obb + stats.bvh_nodes_pruned_sdf, 0u);
+}
+
+TEST(CompressedContactPipelineTest, SplitsLongStripIntoMultipleSubpatches) {
+    platform::backend::spcc::CompressedContactPipeline pipeline;
+    platform::backend::spcc::CompressedContactConfig cfg;
+    cfg.delta_on = 0.02;
+    cfg.delta_off = 0.03;
+    cfg.max_active_dense = 0;
+    cfg.bvh_leaf_size = 12;
+    cfg.bvh_enable_sdf_node_bound = false;
+    cfg.patch_radius = 0.5;
+    cfg.normal_cos_min = 0.95;
+    cfg.max_patch_diameter = 0.5;
+    cfg.max_subpatch_diameter = 0.08;
+    cfg.max_plane_error = 1.0e-4;
+    cfg.sentinel_spacing = 0.02;
+    cfg.sentinel_margin = 0.002;
+    cfg.max_subpatch_depth = 4;
+    cfg.min_dense_points_per_subpatch = 12;
+    cfg.max_reduced_points_per_patch = 4;
+    pipeline.Configure(cfg);
+
+    std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
+    for (int ix = -20; ix <= 20; ++ix) {
+        for (int iz = -2; iz <= 2; ++iz) {
+            platform::backend::spcc::DenseSurfaceSample sample;
+            sample.xi_slave_S = chrono::ChVector3d(0.01 * ix, -0.01, 0.01 * iz);
+            sample.normal_slave_S = chrono::ChVector3d(0.0, 1.0, 0.0);
+            sample.area_weight = 1.0;
+            samples.push_back(sample);
+        }
+    }
+    pipeline.SetSlaveSurfaceSamples(samples);
+
+    PlaneSDF sdf;
+    const auto master_state = MakeIdentityState();
+    const auto slave_state = MakeIdentityState();
+
+    std::vector<platform::backend::spcc::ReducedContactPoint> reduced;
+    platform::backend::spcc::CompressionStats stats;
+    pipeline.BuildReducedContacts(master_state, slave_state, sdf, 0.2, 1.0e-3, reduced, &stats);
+
+    ASSERT_FALSE(reduced.empty());
+    EXPECT_EQ(stats.patch_count, 1u);
+    EXPECT_GT(stats.subpatch_count, 1u);
+    EXPECT_GT(stats.reduced_count, 4u);
 }
