@@ -106,8 +106,34 @@ chrono::ChVector3d ProxyCoP(const std::vector<DenseContactPoint>& points) {
     return cop * (1.0 / weight_sum);
 }
 
+chrono::ChVector3d PatchReferenceCenter(const std::vector<DenseContactPoint>& dense_points,
+                                        const PatchAccumulator& patch) {
+    chrono::ChVector3d center_W(0.0, 0.0, 0.0);
+    double weight_sum = 0.0;
+    for (const auto point_index : patch.members) {
+        const auto& point = dense_points[point_index];
+        const double weight = ProxyLoad(point);
+        center_W += weight * point.x_W;
+        weight_sum += weight;
+    }
+    if (weight_sum > 1.0e-12) {
+        return center_W * (1.0 / weight_sum);
+    }
+    return patch.centroid_W;
+}
+
+double TangentialRadiusSquared(const chrono::ChVector3d& x_W,
+                               const chrono::ChVector3d& origin_W,
+                               const chrono::ChVector3d& n_W) {
+    const chrono::ChVector3d rel = x_W - origin_W;
+    const chrono::ChVector3d tangential = rel - chrono::Vdot(rel, n_W) * n_W;
+    return tangential.Length2();
+}
+
 std::vector<std::size_t> SelectSupportIndices(const std::vector<DenseContactPoint>& dense_points,
                                               const PatchAccumulator& patch,
+                                              const std::vector<ReducedContactPoint>& previous_contacts,
+                                              double match_radius,
                                               int target_points) {
     std::vector<std::size_t> selected;
     if (patch.members.empty() || target_points <= 0) {
@@ -116,47 +142,72 @@ std::vector<std::size_t> SelectSupportIndices(const std::vector<DenseContactPoin
 
     target_points = std::max(1, target_points);
 
-    std::size_t deepest_index = patch.members.front();
-    double deepest_phi = dense_points[deepest_index].phi_eff;
+    std::size_t max_load_index = patch.members.front();
+    double max_load = ProxyLoad(dense_points[max_load_index]);
     for (const auto point_index : patch.members) {
-        if (dense_points[point_index].phi_eff < deepest_phi) {
-            deepest_phi = dense_points[point_index].phi_eff;
-            deepest_index = point_index;
+        const double load = ProxyLoad(dense_points[point_index]);
+        if (load > max_load) {
+            max_load = load;
+            max_load_index = point_index;
         }
     }
-    selected.push_back(deepest_index);
+    selected.push_back(max_load_index);
     if (target_points == 1 || patch.members.size() == 1) {
         return selected;
     }
 
+    const chrono::ChVector3d center_W = PatchReferenceCenter(dense_points, patch);
     chrono::ChVector3d t1_W;
     chrono::ChVector3d t2_W;
     BuildOrthonormalBasis(patch.avg_normal_W, t1_W, t2_W);
 
-    auto pick_extreme = [&](const chrono::ChVector3d& axis_W, bool maximize) {
+    if (match_radius > 0.0) {
+        for (const auto& previous : previous_contacts) {
+            if (chrono::Vdot(previous.n_W, patch.avg_normal_W) < 0.85) {
+                continue;
+            }
+
+            std::size_t best_index = patch.members.front();
+            double best_distance = std::numeric_limits<double>::infinity();
+            for (const auto point_index : patch.members) {
+                const double distance = (dense_points[point_index].x_W - previous.x_W).Length();
+                if (distance < best_distance) {
+                    best_distance = distance;
+                    best_index = point_index;
+                }
+            }
+
+            if (best_distance <= match_radius &&
+                std::find(selected.begin(), selected.end(), best_index) == selected.end()) {
+                selected.push_back(best_index);
+                if (static_cast<int>(selected.size()) >= target_points) {
+                    return selected;
+                }
+            }
+        }
+    }
+
+    const int direction_count = std::max(8, target_points * 2);
+    for (int direction_index = 0; direction_index < direction_count; ++direction_index) {
+        const double theta =
+            (2.0 * std::acos(-1.0) * static_cast<double>(direction_index)) / static_cast<double>(direction_count);
+        const chrono::ChVector3d axis_W = std::cos(theta) * t1_W + std::sin(theta) * t2_W;
+
         std::size_t best_index = patch.members.front();
-        double best_value = maximize ? -std::numeric_limits<double>::infinity()
-                                     : std::numeric_limits<double>::infinity();
+        double best_score = -std::numeric_limits<double>::infinity();
         for (const auto point_index : patch.members) {
-            const double value = chrono::Vdot(dense_points[point_index].x_W - patch.centroid_W, axis_W);
-            if ((maximize && value > best_value) || (!maximize && value < best_value)) {
-                best_value = value;
+            const auto& point = dense_points[point_index];
+            const chrono::ChVector3d rel = point.x_W - center_W;
+            const double projected = chrono::Vdot(rel, axis_W);
+            const double radial = std::sqrt(TangentialRadiusSquared(point.x_W, center_W, patch.avg_normal_W));
+            const double score = projected + 0.1 * radial + 1.0e-3 * ProxyLoad(point);
+            if (score > best_score) {
+                best_score = score;
                 best_index = point_index;
             }
         }
-        return best_index;
-    };
-
-    std::vector<std::size_t> candidates = {
-        pick_extreme(t1_W, false),
-        pick_extreme(t1_W, true),
-        pick_extreme(t2_W, false),
-        pick_extreme(t2_W, true),
-    };
-
-    for (const auto candidate : candidates) {
-        if (std::find(selected.begin(), selected.end(), candidate) == selected.end()) {
-            selected.push_back(candidate);
+        if (std::find(selected.begin(), selected.end(), best_index) == selected.end()) {
+            selected.push_back(best_index);
             if (static_cast<int>(selected.size()) >= target_points) {
                 return selected;
             }
@@ -173,9 +224,11 @@ std::vector<std::size_t> SelectSupportIndices(const std::vector<DenseContactPoin
             }
             double score = 0.0;
             for (const auto chosen_index : selected) {
-                score += (dense_points[point_index].x_W - dense_points[chosen_index].x_W).Length();
+                score += std::sqrt(
+                    TangentialRadiusSquared(dense_points[point_index].x_W, dense_points[chosen_index].x_W,
+                                            patch.avg_normal_W));
             }
-            score += DistanceToLine(dense_points[point_index].x_W, patch.centroid_W, patch.avg_normal_W);
+            score += std::sqrt(TangentialRadiusSquared(dense_points[point_index].x_W, center_W, patch.avg_normal_W));
             if (score > best_score) {
                 best_score = score;
                 best_index = point_index;
@@ -193,9 +246,12 @@ std::vector<std::size_t> SelectSupportIndices(const std::vector<DenseContactPoin
 
 std::vector<ReducedSupportAggregate> BuildReducedSupportsForPatch(const std::vector<DenseContactPoint>& dense_points,
                                                                   const PatchAccumulator& patch,
+                                                                  const std::vector<ReducedContactPoint>& previous_contacts,
+                                                                  double match_radius,
                                                                   int target_points) {
     target_points = std::max(1, std::min(target_points, static_cast<int>(patch.members.size())));
-    const auto support_indices = SelectSupportIndices(dense_points, patch, target_points);
+    const auto support_indices = SelectSupportIndices(dense_points, patch, previous_contacts, match_radius,
+                                                      target_points);
     if (support_indices.empty()) {
         return {};
     }
@@ -207,57 +263,50 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForPatch(const std::vec
     }
 
     std::vector<std::size_t> assignments(patch.members.size(), 0);
-    for (int iter = 0; iter < 4; ++iter) {
-        for (std::size_t local_index = 0; local_index < patch.members.size(); ++local_index) {
-            const auto member_index = patch.members[local_index];
-            const auto& dense = dense_points[member_index];
+    for (std::size_t local_index = 0; local_index < patch.members.size(); ++local_index) {
+        const auto member_index = patch.members[local_index];
+        const auto& dense = dense_points[member_index];
 
-            std::size_t best_cluster = 0;
-            double best_distance = std::numeric_limits<double>::infinity();
-            for (std::size_t cluster = 0; cluster < centers_W.size(); ++cluster) {
-                const double distance = (dense.x_W - centers_W[cluster]).Length2();
-                if (distance < best_distance) {
-                    best_distance = distance;
-                    best_cluster = cluster;
-                }
-            }
-            assignments[local_index] = best_cluster;
-        }
-
-        std::vector<chrono::ChVector3d> centroid_sum_W(centers_W.size(), chrono::ChVector3d(0.0, 0.0, 0.0));
-        std::vector<double> weight_sum(centers_W.size(), 0.0);
-        for (std::size_t local_index = 0; local_index < patch.members.size(); ++local_index) {
-            const auto member_index = patch.members[local_index];
-            const auto& dense = dense_points[member_index];
-            const std::size_t cluster = assignments[local_index];
-            const double weight = ReductionWeight(dense);
-            centroid_sum_W[cluster] += weight * dense.x_W;
-            weight_sum[cluster] += weight;
-        }
-
+        std::size_t best_cluster = 0;
+        double best_distance = std::numeric_limits<double>::infinity();
         for (std::size_t cluster = 0; cluster < centers_W.size(); ++cluster) {
-            if (weight_sum[cluster] > 1.0e-12) {
-                centers_W[cluster] = centroid_sum_W[cluster] * (1.0 / weight_sum[cluster]);
+            const double distance = (dense.x_W - centers_W[cluster]).Length2();
+            if (distance < best_distance) {
+                best_distance = distance;
+                best_cluster = cluster;
             }
         }
+        assignments[local_index] = best_cluster;
     }
 
+    const chrono::ChVector3d patch_center_W = PatchReferenceCenter(dense_points, patch);
     std::vector<ReducedSupportAggregate> supports;
     supports.reserve(centers_W.size());
     for (std::size_t cluster = 0; cluster < centers_W.size(); ++cluster) {
-        chrono::ChVector3d sum_x_W(0.0, 0.0, 0.0);
-        chrono::ChVector3d sum_x_master_M(0.0, 0.0, 0.0);
-        chrono::ChVector3d sum_x_master_surface_W(0.0, 0.0, 0.0);
-        chrono::ChVector3d sum_n_W(0.0, 0.0, 0.0);
-        chrono::ChVector3d sum_v_rel_W(0.0, 0.0, 0.0);
-        double sum_phi = 0.0;
-        double sum_phi_eff = 0.0;
         double sum_area = 0.0;
         double sum_load = 0.0;
         double sum_weight = 0.0;
-        double min_phi = std::numeric_limits<double>::infinity();
-        double min_phi_eff = std::numeric_limits<double>::infinity();
         std::size_t count = 0;
+        std::size_t representative_member_index = patch.members.front();
+        double best_rep_score = -std::numeric_limits<double>::infinity();
+
+        chrono::ChVector3d anchor_W = centers_W[cluster];
+        bool anchored_to_history = false;
+        if (match_radius > 0.0) {
+            double best_anchor_distance = std::numeric_limits<double>::infinity();
+            for (const auto& previous : previous_contacts) {
+                const double distance = (previous.x_W - centers_W[cluster]).Length();
+                if (distance < best_anchor_distance) {
+                    best_anchor_distance = distance;
+                    anchor_W = previous.x_W;
+                }
+            }
+            anchored_to_history = best_anchor_distance <= match_radius;
+        }
+
+        chrono::ChVector3d rep_dir_W = centers_W[cluster] - patch_center_W;
+        rep_dir_W -= chrono::Vdot(rep_dir_W, patch.avg_normal_W) * patch.avg_normal_W;
+        rep_dir_W = SafeNormalized(rep_dir_W, chrono::ChVector3d(0.0, 0.0, 0.0));
 
         for (std::size_t local_index = 0; local_index < patch.members.size(); ++local_index) {
             if (assignments[local_index] != cluster) {
@@ -268,19 +317,26 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForPatch(const std::vec
             const auto& dense = dense_points[member_index];
             const double weight = ReductionWeight(dense);
 
-            sum_x_W += weight * dense.x_W;
-            sum_x_master_M += weight * dense.x_master_M;
-            sum_x_master_surface_W += weight * dense.x_master_surface_W;
-            sum_n_W += weight * dense.n_W;
-            sum_v_rel_W += weight * dense.v_rel_W;
-            sum_phi += weight * dense.phi;
-            sum_phi_eff += weight * dense.phi_eff;
             sum_area += dense.area_weight;
             sum_load += ProxyLoad(dense);
             sum_weight += weight;
-            min_phi = std::min(min_phi, dense.phi);
-            min_phi_eff = std::min(min_phi_eff, dense.phi_eff);
             ++count;
+
+            const chrono::ChVector3d rel = dense.x_W - patch_center_W;
+            chrono::ChVector3d tangential_rel = rel - chrono::Vdot(rel, patch.avg_normal_W) * patch.avg_normal_W;
+            const double radial = tangential_rel.Length();
+            double rep_score = 0.0;
+            if (anchored_to_history) {
+                rep_score = -(dense.x_W - anchor_W).Length() + 0.02 * radial + 1.0e-3 * ProxyLoad(dense);
+            } else {
+                const double aligned =
+                    rep_dir_W.Length2() > 0.0 ? chrono::Vdot(tangential_rel, rep_dir_W) : radial;
+                rep_score = aligned + 0.1 * radial + 1.0e-3 * ProxyLoad(dense);
+            }
+            if (rep_score > best_rep_score) {
+                best_rep_score = rep_score;
+                representative_member_index = member_index;
+            }
         }
 
         if (!(sum_weight > 1.0e-12) || count == 0) {
@@ -288,13 +344,14 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForPatch(const std::vec
         }
 
         ReducedSupportAggregate support;
-        support.x_W = sum_x_W * (1.0 / sum_weight);
-        support.x_master_M = sum_x_master_M * (1.0 / sum_weight);
-        support.x_master_surface_W = sum_x_master_surface_W * (1.0 / sum_weight);
-        support.n_W = SafeNormalized(sum_n_W, patch.avg_normal_W);
-        support.v_rel_W = sum_v_rel_W * (1.0 / sum_weight);
-        support.phi = std::isfinite(min_phi) ? min_phi : (sum_phi * (1.0 / sum_weight));
-        support.phi_eff = std::isfinite(min_phi_eff) ? min_phi_eff : (sum_phi_eff * (1.0 / sum_weight));
+        const auto& representative = dense_points[representative_member_index];
+        support.x_W = representative.x_W;
+        support.x_master_M = representative.x_master_M;
+        support.x_master_surface_W = representative.x_master_surface_W;
+        support.n_W = representative.n_W;
+        support.v_rel_W = representative.v_rel_W;
+        support.phi = representative.phi;
+        support.phi_eff = representative.phi_eff;
         support.area_weight = sum_area;
         support.support_weight =
             (support.phi_eff < -1.0e-12) ? (sum_load / std::max(1.0e-12, -support.phi_eff)) : sum_area;
@@ -309,10 +366,12 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForPatch(const std::vec
 
 void CompressedContactPipeline::Configure(const CompressedContactConfig& cfg) {
     cfg_ = cfg;
+    previous_contacts_.clear();
 }
 
 void CompressedContactPipeline::SetSlaveSurfaceSamples(std::vector<DenseSurfaceSample> samples) {
     slave_surface_samples_ = std::move(samples);
+    previous_contacts_.clear();
 }
 
 void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& master_state,
@@ -425,7 +484,23 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     out_contacts.reserve(dense_points.size());
     for (std::size_t patch_id = 0; patch_id < patches.size(); ++patch_id) {
         const auto& patch = patches[patch_id];
-        auto supports = BuildReducedSupportsForPatch(dense_points, patch, cfg_.max_reduced_points_per_patch);
+        std::vector<ReducedContactPoint> previous_patch_contacts;
+        if (cfg_.warm_start_match_radius > 0.0) {
+            const double patch_gate =
+                std::max({cfg_.warm_start_match_radius, cfg_.patch_radius, cfg_.max_patch_diameter, 1.0e-6});
+            for (const auto& previous : previous_contacts_) {
+                if (chrono::Vdot(previous.n_W, patch.avg_normal_W) < cfg_.normal_cos_min) {
+                    continue;
+                }
+                if ((previous.x_W - patch.centroid_W).Length() <= patch_gate) {
+                    previous_patch_contacts.push_back(previous);
+                }
+            }
+        }
+
+        auto supports = BuildReducedSupportsForPatch(dense_points, patch, previous_patch_contacts,
+                                                     cfg_.warm_start_match_radius,
+                                                     cfg_.max_reduced_points_per_patch);
 
         for (std::size_t support_id = 0; support_id < supports.size(); ++support_id) {
             const auto& support = supports[support_id];
@@ -446,6 +521,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             out_contacts.push_back(reduced);
         }
     }
+
+    previous_contacts_ = out_contacts;
 
     if (!out_stats) {
         return;

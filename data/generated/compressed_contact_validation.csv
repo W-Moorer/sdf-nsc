@@ -1,6 +1,6 @@
 scenario,description,dense_count,reduced_count,compression_ratio,patch_count,expected_patch_count,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,dense_force_norm,reduced_force_norm,dense_moment_norm,reduced_moment_norm,pass
-flat_square,"single square patch against a plane",576,4,0.00694444,1,1,3.97047e-15,6.46721e-17,4.03704e-17,0,3.2e-06,3.2e-06,1.00945e-24,6.61744e-24,1
-tilted_square,"tilted plane with predictive gap active",576,4,0.00694444,1,1,7.83896e-15,1.94634e-16,1.81579e-17,0,4.25e-06,4.25e-06,6.58943e-24,3.20045e-23,1
-long_strip,"elongated strip patch against a plane",480,4,0.00833333,1,1,5.6861e-15,8.80884e-17,1.56411e-17,0,2.16e-06,2.16e-06,1.96456e-24,1.32349e-23,1
-dual_patch,"two disconnected square patches",648,8,0.0123457,2,2,1.77312e-14,3.72477e-17,1.86003e-17,0,1.875e-06,1.875e-06,4.9631e-24,7.39853e-24,1
-cylinder_band,"curved contact band against a cylinder",960,4,0.00416667,1,1,0.0050736,0.00104439,3.41887e-05,0,2.63326e-06,2.64647e-06,7.62889e-25,4.80768e-11,1
+flat_square,"single square patch against a plane",576,4,0.00694444,1,1,3.97047e-15,1.16794e-16,3.35432e-17,0,3.2e-06,3.2e-06,1.00945e-24,9.35848e-24,1
+tilted_square,"tilted plane with predictive gap active",576,4,0.00694444,1,1,7.20443e-15,1.05478e-16,1.04402e-17,0,4.25e-06,4.25e-06,6.58943e-24,1.09738e-23,1
+long_strip,"elongated strip patch against a plane",480,4,0.00833333,1,1,5.6861e-15,1.18798e-16,1.53668e-17,0,2.16e-06,2.16e-06,1.96456e-24,1.32349e-23,1
+dual_patch,"two disconnected square patches",648,8,0.0123457,2,2,1.77312e-14,1.16241e-16,1.8006e-17,0,1.875e-06,1.875e-06,4.9631e-24,6.61744e-24,1
+cylinder_band,"curved contact band against a cylinder",960,4,0.00416667,1,1,0.0589954,0.0902716,0.00281914,0.205682,2.63326e-06,2.61771e-06,7.62889e-25,6.03814e-09,1

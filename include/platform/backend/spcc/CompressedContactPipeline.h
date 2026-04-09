@@ -57,6 +57,7 @@ class CompressedContactPipeline {
   private:
     CompressedContactConfig cfg_;
     std::vector<DenseSurfaceSample> slave_surface_samples_;
+    mutable std::vector<ReducedContactPoint> previous_contacts_;
 };
 
 }  // namespace spcc
