@@ -1,5 +1,6 @@
 # CMake
 _build/
+_build_wsl/
 build/
 out/
 _deps/

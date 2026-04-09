@@ -32,6 +32,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(PLATFORM_BACKEND_SOURCES
     src/backend/chrono/ChronoRigidSystemNSC.cpp
     src/backend/chrono/spcc/CompressedContactPipeline.cpp
+    src/backend/chrono/spcc/CompressedContactValidation.cpp
     src/backend/chrono/spcc/DenseSurfaceSampler.cpp
     src/models/BaselineDropCase.cpp
     src/models/BaselineHeadOnSphereCase.cpp
@@ -264,6 +265,12 @@ add_executable(test_obj2sdf apps/test_obj2sdf/main.cpp)
 target_link_libraries(test_obj2sdf PRIVATE platform_backend)
 if(SPCC_ENABLE_VDB)
     target_link_options(test_obj2sdf PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
+endif()
+
+add_executable(validate_compressed_contact apps/validate_compressed_contact/main.cpp)
+target_link_libraries(validate_compressed_contact PRIVATE platform_backend)
+if(SPCC_ENABLE_VDB)
+    target_link_options(validate_compressed_contact PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
 endif()
 
 # Offline tool to adaptively convert obj to vdb and extract surface
