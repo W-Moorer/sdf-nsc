@@ -139,25 +139,22 @@ std::string BodySnapshotToJson(const backend::BodyDebugSnapshot& body) {
 }
 
 #if defined(SPCC_ENABLE_VDB)
-std::string ContactSnapshotToJson(const backend::spcc::ActiveContactSample& contact) {
+std::string ContactSnapshotToJson(const backend::spcc::ReducedContactPoint& contact) {
     std::ostringstream ss;
     ss << "{"
-       << "\"sample_id\": " << contact.sample_id << ", "
-       << "\"active_age\": " << contact.active_age << ", "
+       << "\"patch_id\": " << contact.patch_id << ", "
+       << "\"support_id\": " << contact.support_id << ", "
+       << "\"dense_members\": " << contact.dense_members << ", "
        << "\"point_slave_world\": " << JsonVec3(contact.x_W) << ", "
        << "\"point_master_surface_world\": " << JsonVec3(contact.x_master_surface_W) << ", "
        << "\"point_master_local\": " << JsonVec3(contact.x_master_M) << ", "
        << "\"normal_world\": " << JsonVec3(contact.n_W) << ", "
-       << "\"grad_master_local\": " << JsonVec3(contact.grad_M) << ", "
-       << "\"u_pred_world\": " << JsonVec3(contact.u_pred_W) << ", "
-       << "\"u_tau_pred_world\": " << JsonVec3(contact.u_tau_pred_W) << ", "
        << "\"v_rel_world\": " << JsonVec3(contact.v_rel_W) << ", "
        << "\"phi\": " << JsonNumber(contact.phi) << ", "
        << "\"phi_eff\": " << JsonNumber(contact.phi_eff) << ", "
-       << "\"curvature_term\": " << JsonNumber(contact.curvature_term) << ", "
-       << "\"u_n_pred\": " << JsonNumber(contact.u_n_pred) << ", "
-       << "\"mu\": " << JsonNumber(contact.mu) << ", "
-       << "\"hessian_world\": " << JsonMat33(contact.hessian_W)
+       << "\"area_weight\": " << JsonNumber(contact.area_weight) << ", "
+       << "\"support_weight\": " << JsonNumber(contact.support_weight) << ", "
+       << "\"mu\": " << JsonNumber(contact.mu)
        << "}";
     return ss.str();
 }
@@ -259,7 +256,7 @@ void BaselineCamCase::TryCaptureSnapshots(double t, double p_y, double v_y, doub
            << "\"contacts\": [";
 
 #if defined(SPCC_ENABLE_VDB)
-        const auto& contacts = m_backend->GetActiveContacts();
+        const auto& contacts = m_backend->GetReducedContacts();
         for (std::size_t i = 0; i < contacts.size(); ++i) {
             if (i > 0) {
                 ss << ", ";

@@ -41,14 +41,14 @@ struct CamCaseConfig {
     double total_time = 3.0;
     int dynamics_substeps = 4;
     std::string env_prefix = "SPCC_CAM";
-    platform::common::ContactAlgorithm contact_algorithm = platform::common::ContactAlgorithm::SdfSecondOrder;
+    platform::common::ContactAlgorithm contact_algorithm = platform::common::ContactAlgorithm::SdfFirstOrder;
 
     // Case-specific SPCC tuning.
     platform::backend::spcc::SdfBuildTuning sdf_build = platform::backend::spcc::MakeCamSdfBuildDefaults();
     platform::backend::spcc::SurfaceSampleTuning sample_tuning =
         platform::backend::spcc::MakeCamSurfaceSampleDefaults();
-    platform::backend::spcc::ContactRegimeConfig contact_regime =
-        platform::backend::spcc::MakeCamSlidingPatchDefaults();
+    platform::backend::spcc::CompressedContactConfig contact_regime =
+        platform::backend::spcc::MakeCamCompressedDefaults();
     FollowerPreloadConfig follower_preload;
 
     // Output

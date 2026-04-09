@@ -37,7 +37,7 @@ void BaselineSimpleGearCase::SetupSystem() {
         m_config.gear1_inertia_xx,
         m_config.gear2_mass,
         m_config.gear2_inertia_xx,
-        m_config.sdf_type == 2,
+        m_config.contact_algorithm,
         m_config.sdf_build,
         m_config.sample_tuning,
         m_config.contact_regime);

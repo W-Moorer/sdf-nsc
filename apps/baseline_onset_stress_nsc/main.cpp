@@ -53,48 +53,25 @@ int main(int argc, char* argv[]) {
     config.total_time = 0.45;
     config.dynamics_substeps = 2;
     config.env_prefix = "SPCC_ONSET";
-    config.contact_algorithm = platform::common::ContactAlgorithm::SdfSecondOrder;
-    config.output_csv_path = "data/outputs/onset_stress_sdf2.csv";
+    config.contact_algorithm = platform::common::ContactAlgorithm::SdfFirstOrder;
+    config.output_csv_path = "data/outputs/onset_stress_sdf1.csv";
 
     config.sdf_build.voxel_size = 2.0e-4;
     config.sdf_build.half_band_width_voxels = 8.0;
     config.sample_tuning.surface_res = 5.0e-4;
     config.sample_tuning.max_samples = 20000;
 
-    config.contact_regime.regime = platform::backend::spcc::ContactRegimeType::SlidingPatch;
-    config.contact_regime.patch_geometry_mode = platform::backend::spcc::PatchGeometryMode::RepresentativeQuery;
-    config.contact_regime.activation.delta_on = 4.0e-4;
-    config.contact_regime.activation.delta_off = 1.0e-3;
-    config.contact_regime.activation.hold_steps = 2;
-    config.contact_regime.activation.max_active_keep = 1;
-    config.contact_regime.activation.full_scan_period = 1;
-    config.contact_regime.activation.local_scan_radius = 6.0e-3;
-    config.contact_regime.activation.cluster_angle_deg = 25.0;
-    config.contact_regime.activation.separating_cutoff = 1.0e-4;
-    config.contact_regime.activation.cluster_radius = 1.5e-3;
-    config.contact_regime.activation.avg_point = false;
-    config.contact_regime.activation.persistent_match_radius = 6.0e-3;
-    config.contact_regime.activation.persistent_normal_cos_min = 0.92;
-    config.contact_regime.activation.persistent_blend_alpha = 0.60;
-    config.contact_regime.activation.persistent_path_samples = 1;
-    config.contact_regime.activation.coverage_spacing_radius = 0.0;
-    config.contact_regime.activation.onset_refine_steps = 0;
-    config.contact_regime.activation.onset_refine_path_samples = 1;
-    config.contact_regime.activation.onset_refine_backtrack_scale = 1.0;
-    config.contact_regime.activation.local_fit_onset_steps = 1;
-    config.contact_regime.activation.local_fit_min_cluster_size = 2;
-    config.contact_regime.activation.local_fit_path_samples = 1;
-    config.contact_regime.activation.local_fit_max_shift_ratio = 1.0;
-    config.contact_regime.activation.local_fit_blend = 1.0;
-    config.contact_regime.activation.local_fit_reject_positive_phi = 2.5e-3;
-    config.contact_regime.curvature.enabled = true;
-    config.contact_regime.curvature.tangential_only = true;
-    config.contact_regime.curvature.normal_alignment_cos_min = 0.99;
-    config.contact_regime.curvature.max_hessian_frobenius = 120.0;
-    config.contact_regime.curvature.max_curvature_term_abs = 6.0e-4;
-    config.contact_regime.curvature.max_curvature_term_ratio = 0.20;
-    config.contact_regime.curvature.gap_floor = 4.0e-4;
-    config.contact_regime.curvature.ramp_steps = 0;
+    config.contact_regime.delta_on = 4.0e-4;
+    config.contact_regime.delta_off = 1.0e-3;
+    config.contact_regime.max_active_dense = 48;
+    config.contact_regime.patch_radius = 3.0e-3;
+    config.contact_regime.normal_cos_min = 0.93;
+    config.contact_regime.max_patch_diameter = 6.0e-3;
+    config.contact_regime.max_reduced_points_per_patch = 4;
+    config.contact_regime.warm_start_match_radius = 2.0e-3;
+    config.contact_regime.max_wrench_error = 0.04;
+    config.contact_regime.max_cop_error = 5.0e-4;
+    config.contact_regime.max_gap_error = 5.0e-4;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -126,7 +103,7 @@ int main(int argc, char* argv[]) {
                       << " [--dt <step_size>] [--T <total_time>] [--output <csv_path>] [--speed <rad_s>]"
                       << " [--snapshot-out <json_path>] [--snapshot-times <t1,t2,...>]"
                       << " [--vtk-dir <dir>] [--vtk-stride <N>]"
-                      << " [--contact-algorithm <mesh|sdf_1st|sdf_2nd>]" << std::endl;
+                      << " [--contact-algorithm <mesh|sdf_1st>]" << std::endl;
             return 1;
         }
     }

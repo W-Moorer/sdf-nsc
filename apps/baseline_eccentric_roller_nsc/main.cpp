@@ -53,8 +53,8 @@ int main(int argc, char* argv[]) {
     config.total_time = 1.57079632679489661923;
     config.dynamics_substeps = 2;
     config.env_prefix = "SPCC_ECC";
-    config.contact_algorithm = platform::common::ContactAlgorithm::SdfSecondOrder;
-    config.output_csv_path = "data/outputs/eccentric_roller_sdf2.csv";
+    config.contact_algorithm = platform::common::ContactAlgorithm::SdfFirstOrder;
+    config.output_csv_path = "data/outputs/eccentric_roller_sdf1.csv";
 
     config.sdf_build = platform::backend::spcc::MakeEccentricRollerSdfBuildDefaults();
     config.sample_tuning = platform::backend::spcc::MakeEccentricRollerSurfaceSampleDefaults();
@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
                       << " [--dt <step_size>] [--T <total_time>] [--output <csv_path>] [--speed <rad_s>]"
                       << " [--snapshot-out <json_path>] [--snapshot-times <t1,t2,...>]"
                       << " [--vtk-dir <dir>] [--vtk-stride <N>]"
-                      << " [--contact-algorithm <mesh|sdf_1st|sdf_2nd>]" << std::endl;
+                      << " [--contact-algorithm <mesh|sdf_1st>]" << std::endl;
             return 1;
         }
     }

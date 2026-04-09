@@ -6,19 +6,18 @@
 #include <chrono/core/ChVector3.h>
 #include <chrono/geometry/ChTriangleMeshConnected.h>
 
-#include "platform/backend/spcc/ContactActivation.h"
+#include "platform/backend/spcc/FirstOrderSDF.h"
 
 namespace platform {
 namespace backend {
 namespace spcc {
 
-class VDBSDFField final : public SDFField {
+class VDBSDFField final : public FirstOrderSDF {
   public:
     struct BuildOptions {
         double voxel_size = 5e-4;
         double half_band_width_voxels = 3.0;
         std::string grid_name = "master_sdf";
-        bool direct_phi_hessian = false;
     };
 
     VDBSDFField();
@@ -49,10 +48,10 @@ class VDBSDFField final : public SDFField {
     bool QueryPhiGradHessianM(const chrono::ChVector3d& x_M,
                               double& phi,
                               chrono::ChVector3d& grad_M,
-                              chrono::ChMatrix33<>& hessian_M) const override;
+                              chrono::ChMatrix33<>& hessian_M) const;
 
   private:
-    bool BuildNanoFromOpenGrid();
+    bool FinalizeOpenGrid();
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

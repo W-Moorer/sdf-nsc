@@ -1,0 +1,461 @@
+\label{sec:method}
+
+\subsection{方法概述}
+
+现有刚体接触仿真中，基于少量接触点缓存的离散接触流形更强调时间连续性与求解效率，而非连续接触区域的高保真力学表征。与之相对，基于接触曲面与压力场积分的思路体现了“surface-first”的建模思想：先构造接触面，再由接触面上的分布量得到合力与合力矩。进一步地，等效接触点（Equivalent Contact Point, ECP）类方法表明，对单个凸接触区域，可以用一个等效接触点及其对应的接触 wrench 来统一线接触与面接触。上述认识共同说明：高精度刚体接触的关键，不在于缓存少量几何点，而在于如何在刚体动力学层面保留连续接触区域的等效 wrench。
+
+基于此，本文提出一种面向 Chrono NSC 的\textbf{多 Patch / 多 Subpatch 保持 Wrench 等效的 SDF 接触约化方法}。该方法以 SDF 为几何基础，首先为每个候选接触对构造高密度接触区域参考模型；随后将连续接触区域分解为多个 patch 与 subpatch；最后对每个 subpatch 构造少量代表点组成的 reduced support set，使其在给定误差阈值下逼近 dense 接触模型所张成的可行 wrench 锥，并将所得代表接触点重新注入 Chrono NSC 接触容器。该方法定位于碰撞--接触建模接口层，而不修改全局 NSC 互补求解框架。
+
+本文方法的核心思想可概括为：
+\begin{enumerate}[label=(\arabic*)]
+    \item \textbf{surface-first}：先由 SDF 构造高密度接触区域，而非直接信任离散点流形；
+    \item \textbf{wrench-first}：约化目标不是保留若干几何点，而是逼近 dense 接触模型的可行 wrench 锥；
+    \item \textbf{adaptive refinement}：以几何误差、wrench 误差、CoP 误差与连续区域 gap 误差共同驱动自适应细分；
+    \item \textbf{solver-compatible}：最终输出仍为普通点接触，从而直接复用 Chrono NSC 的求解链路。
+\end{enumerate}
+
+\subsection{问题定义}
+
+考虑两个刚体 $A$ 与 $B$，其几何分别由符号距离场 $\phi_A(x)$ 与 $\phi_B(x)$ 描述。对于任一候选接触对，在相对位姿给定时构造局部 gap 场 $g(x)$。在本文中，$g(x)$ 可由双 SDF 组合、单边表面采样或其他等价构造获得，其目标是给出局部非穿透约束的几何刻画。接触区域定义为
+\begin{equation}
+\Omega = \{x \in \mathbb{R}^3 \mid g(x) \le 0\}.
+\end{equation}
+
+为获得高精度参考接触模型，将 $\Omega$ 离散为带面积权重的高密积分点集合
+\begin{equation}
+\mathcal{Q} = \{(x_k, a_k, n_k)\}_{k=1}^{N_q},
+\end{equation}
+其中 $x_k$ 为接触积分点，$a_k$ 为面积权重，$n_k$ 为由 SDF 梯度给出的局部单位法向，即
+\begin{equation}
+ n_k = \frac{\nabla \phi(x_k)}{\|\nabla \phi(x_k)\|}.
+\end{equation}
+
+在每个积分点上，引入局部接触力变量
+\begin{equation}
+\lambda_k =
+\begin{bmatrix}
+ t_{k1} \\
+ t_{k2} \\
+ n_k^c
+\end{bmatrix},
+\qquad
+n_k^c \ge 0,
+\qquad
+\sqrt{t_{k1}^2 + t_{k2}^2} \le \mu_k n_k^c,
+\end{equation}
+其中 $n_k^c$ 表示法向反力标量，$(t_{k1}, t_{k2})$ 表示局部切向反力分量，$\mu_k$ 为局部摩擦系数。
+
+对于参考点 $c$，记 $x_k-c$ 在局部切平面基 $(e_1,e_2,e_3)$ 中的坐标为 $(u_k,v_k,0)$。则每个积分点对局部六维 wrench 的映射矩阵可写为
+\begin{equation}
+G(x_k) =
+\begin{bmatrix}
+1 & 0 & 0 \\
+0 & 1 & 0 \\
+0 & 0 & 1 \\
+0 & 0 & v_k \\
+0 & 0 & -u_k \\
+-v_k & u_k & 0
+\end{bmatrix}.
+\end{equation}
+
+因此，dense 接触模型可产生的任意局部 wrench 为
+\begin{equation}
+ w = \sum_{k=1}^{N_q} G(x_k)\lambda_k.
+\end{equation}
+
+进一步定义 dense 可行 wrench 锥
+\begin{equation}
+\mathcal{C}_{\mathrm{dense}}
+=
+\left\{
+\sum_{k=1}^{N_q} G(x_k)\lambda_k
+\;\middle|\;
+ n_k^c \ge 0,\;
+ \|(t_{k1},t_{k2})\|_2 \le \mu_k n_k^c
+\right\}.
+\end{equation}
+
+本文约化的目标不是保留 $\mathcal{Q}$ 的全部几何点，而是构造一个低维 reduced support set，使其对应的 reduced wrench 锥尽可能逼近 $\mathcal{C}_{\mathrm{dense}}$。
+
+\subsection{多 Patch / 多 Subpatch 分解}
+
+\subsubsection{Patch 分解}
+
+由于一个接触对可能包含多个不连通接触区域，本文首先在高密积分点集合 $\mathcal{Q}$ 上建立邻接图
+\begin{equation}
+(i,j)\in E
+\iff
+\|x_i - x_j\| < h
+\;\land\;
+n_i \cdot n_j > \cos\theta_0
+\;\land\;
+g(x_i)\le 0,\; g(x_j)\le 0,
+\end{equation}
+其中 $h$ 为局部采样尺度，$\theta_0$ 为法向相容阈值。图的连通分量定义为接触 patch：
+\begin{equation}
+\Omega = \bigcup_{\ell=1}^{N_p} \Omega_\ell.
+\end{equation}
+
+这种处理确保不同的连通接触区域不会被错误合并为单一 patch。
+
+\subsubsection{Subpatch 分解}
+
+仅按连通性分块仍不足以保证局部 wrench 等效的精度。为此，本文进一步将每个 patch $\Omega_\ell$ 分解为若干 subpatch：
+\begin{equation}
+\Omega_\ell = \bigcup_{r=1}^{m_\ell} \Omega_{\ell r}.
+\end{equation}
+
+subpatch 的细分由如下误差指标联合驱动：
+\begin{enumerate}[label=(\roman*)]
+    \item \textbf{局部平面化误差}
+    \begin{equation}
+    e_{\mathrm{plane}} = \kappa_{\max} D,
+    \end{equation}
+    其中 $D$ 为当前块的直径，$\kappa_{\max}$ 为最大主曲率；
+
+    \item \textbf{二阶矩误差}
+    \begin{equation}
+    e_{\Sigma}
+    =
+    \frac{\|\Sigma_{\mathrm{red}}-\Sigma_{\mathrm{dense}}\|_F}
+    {\|\Sigma_{\mathrm{dense}}\|_F+\varepsilon};
+    \end{equation}
+
+    \item \textbf{可行 wrench 锥误差}
+    \begin{equation}
+    e_{\mathcal{C}}
+    =
+    \max_{s\in\mathcal{S}_w}
+    \frac{|h_{\mathrm{dense}}(s)-h_{\mathrm{red}}(s)|}
+    {h_{\mathrm{dense}}(s)+\varepsilon},
+    \end{equation}
+    其中 $h_{\mathcal{C}}(s)=\sup_{w\in\mathcal{C}} s^\top w$ 为 support function；
+
+    \item \textbf{内部漏穿透误差}
+    \begin{equation}
+    e_g = \max_{s_i\in \mathcal{S}_{\ell r}} \max(0,-g(s_i)),
+    \end{equation}
+    其中 $\mathcal{S}_{\ell r}$ 为布置于 subpatch 内部的 sentinel 点集合。
+\end{enumerate}
+
+一旦任一误差超过预设阈值，当前块将继续沿主方向、法向变化方向或局部骨架方向进行细分。由此，本文形成由误差控制的 patch-subpatch 自适应层级结构。
+
+\subsection{局部保持 Wrench 等效的 Reduced Support Set}
+
+\subsubsection{局部坐标系与 Reduced Wrench 锥}
+
+对于任意 subpatch $\Omega_{\ell r}$，定义其局部参考点 $c_{\ell r}$ 为面积加权质心，局部法向 $e_3$ 为面积加权平均法向，$e_1,e_2$ 为张成局部切平面的正交基。设 reduced support set 为
+\begin{equation}
+Q_{\ell r}=\{q_j=(u_j,v_j,0)\}_{j=1}^{m},
+\end{equation}
+其中 $m$ 为当前 subpatch 的代表点数。对应的 reduced 点力变量为
+\begin{equation}
+\hat{\lambda}_j=
+\begin{bmatrix}
+\hat{t}_{j1}\\
+\hat{t}_{j2}\\
+\hat{n}_j
+\end{bmatrix},
+\qquad
+\hat{n}_j\ge0,
+\qquad
+\sqrt{\hat{t}_{j1}^2+\hat{t}_{j2}^2}\le \mu_j \hat{n}_j.
+\end{equation}
+
+则 reduced 模型对应的可行 wrench 锥为
+\begin{equation}
+\mathcal{C}_{\mathrm{red}}(Q_{\ell r})
+=
+\left\{
+\sum_{j=1}^{m} G(q_j)\hat{\lambda}_j
+\right\}.
+\end{equation}
+
+我们的目标是使 $\mathcal{C}_{\mathrm{red}}$ 在给定容忍度下逼近 $\mathcal{C}_{\mathrm{dense}}$。
+
+\subsubsection{三点局部 Wrench 完备性}
+
+当 $\Omega_{\ell r}$ 局部近似共面时，三个非共线代表点已足以生成一个完整的局部六维 wrench 基。具体地，总 wrench 分量满足
+\begin{equation}
+\begin{aligned}
+T_x &= \sum_{j=1}^{m} \hat{t}_{j1},\\
+T_y &= \sum_{j=1}^{m} \hat{t}_{j2},\\
+N   &= \sum_{j=1}^{m} \hat{n}_j,\\
+M_x &= \sum_{j=1}^{m} v_j \hat{n}_j,\\
+M_y &= -\sum_{j=1}^{m} u_j \hat{n}_j,\\
+M_z &= \sum_{j=1}^{m}\left(u_j \hat{t}_{j2}-v_j \hat{t}_{j1}\right).
+\end{aligned}
+\end{equation}
+
+对 $m=3$ 且三点非共线的情形，法向分量满足
+\begin{equation}
+\begin{bmatrix}
+1 & 1 & 1\\
+v_1 & v_2 & v_3\\
+-u_1 & -u_2 & -u_3
+\end{bmatrix}
+\begin{bmatrix}
+\hat{n}_1\\
+\hat{n}_2\\
+\hat{n}_3
+\end{bmatrix}
+=
+\begin{bmatrix}
+N\\
+M_x\\
+M_y
+\end{bmatrix},
+\end{equation}
+切向分量满足
+\begin{equation}
+\begin{bmatrix}
+1 & 0 & 1 & 0 & 1 & 0\\
+0 & 1 & 0 & 1 & 0 & 1\\
+-v_1 & u_1 & -v_2 & u_2 & -v_3 & u_3
+\end{bmatrix}
+\begin{bmatrix}
+\hat{t}_{11}\\
+\hat{t}_{12}\\
+\hat{t}_{21}\\
+\hat{t}_{22}\\
+\hat{t}_{31}\\
+\hat{t}_{32}
+\end{bmatrix}
+=
+\begin{bmatrix}
+T_x\\
+T_y\\
+M_z
+\end{bmatrix}.
+\end{equation}
+
+当三点非共线时，上述两个矩阵均满秩，因此在忽略库仑锥约束的情况下，三点已对局部六维 wrench 完备。由此可知，\textbf{三点是局部共面 subpatch 的最小 wrench 完备基}。若摩擦可行性不足或几何条件恶化，则提高 $m$ 或继续细分 subpatch。
+
+\subsubsection{法向可行性与 CoP 支撑域}
+
+对 $N>0$，定义中心压力点（center of pressure, CoP）
+\begin{equation}
+ u_c = -\frac{M_y}{N},
+ \qquad
+ v_c = \frac{M_x}{N}.
+\end{equation}
+
+令 $\lambda_j = \hat{n}_j/N$，则有
+\begin{equation}
+\lambda_1+\lambda_2+\lambda_3=1,
+\qquad
+\sum_{j=1}^{3}\lambda_j q_j = (u_c,v_c,0).
+\end{equation}
+
+\begin{proposition}
+对于三点 reduced support set，存在 $\hat{n}_j\ge 0$ 使法向合力与法向力矩精确匹配，当且仅当 CoP 落在三角形 $\mathrm{conv}\{q_1,q_2,q_3\}$ 内。
+\end{proposition}
+
+该命题给出了一个重要设计原则：代表点三角形并非任意选取，而必须覆盖 dense subpatch 在给定工况下可能出现的 CoP 活动区域。
+
+\subsection{代表点位置优化}
+
+\subsubsection{几何初始化}
+
+首先计算 dense subpatch 投影到局部平面的二维点集 $\xi_k$ 的一、二阶矩：
+\begin{equation}
+A = \sum_k a_k,
+\qquad
+\bar{\xi} = \frac{1}{A}\sum_k a_k \xi_k,
+\qquad
+\Sigma = \frac{1}{A}\sum_k a_k(\xi_k-\bar{\xi})(\xi_k-\bar{\xi})^\top.
+\end{equation}
+
+令 $LL^\top=\Sigma$。对初始三点，可取标准二维 simplex 顶点 $s_j$ 构造
+\begin{equation}
+ q_j^{(0)} = \bar{\xi} + \gamma L s_j,
+\end{equation}
+其中 $\gamma$ 为尺度因子。该初始化使 reduced support set 在均值与二阶尺度上与 dense patch 对齐。
+
+\subsubsection{精度优先目标函数}
+
+最终代表点通过如下优化求得：
+\begin{equation}
+\min_{Q\subset \mathcal{H}}
+\;
+\alpha \|c(Q)-\bar{\xi}\|^2
++\beta \|\Sigma(Q)-\Sigma\|_F^2
++\gamma E_{\mathcal{C}}(Q)^2
+-\eta \log\det(B_n B_n^\top)
+-\zeta \log\det(B_t B_t^\top),
+\end{equation}
+其中：
+\begin{itemize}[leftmargin=2em]
+    \item $\mathcal{H}$ 为当前 subpatch 的几何支撑域；
+    \item $c(Q)$ 与 $\Sigma(Q)$ 分别为代表点集合的一、二阶矩；
+    \item $E_{\mathcal{C}}(Q)$ 为 dense/reduced wrench 锥的 support-function 误差；
+    \item $B_n$ 与 $B_t$ 分别为法向与切向矩阵。
+\end{itemize}
+
+其中前两项约束 reduced support set 的几何尺度，第三项直接最小化 wrench 锥误差，后两项提升法向与切向矩阵的条件数，避免代表点塌缩或杠杆臂退化。
+
+\subsection{局部参考 Wrench 预测与 Reduced 力分配}
+
+\subsubsection{局部参考 Wrench 预测}
+
+仅逼近可行 wrench 锥仍不足以决定当前时间步应落在锥中的哪一点。因此，本文为每个 dense subpatch 构造一个\textbf{局部参考 wrench 预测器}，得到当前时刻参考 wrench $w_{\ell r}^\star$。
+
+设当前相对 twist 为 $(v_{\mathrm{rel}}, \omega_{\mathrm{rel}})$。本文采用局部 dense 微求解方式，在 dense 积分点上解一个小型 SOCP/QP：
+\begin{equation}
+\min_{\lambda}
+\frac{1}{2}\lambda^\top H \lambda + g^\top \lambda
+\quad
+\text{s.t.}\quad
+\lambda \in \mathcal{K}_\mu,
+\end{equation}
+其中 $\mathcal{K}_\mu$ 表示由所有积分点局部库仑锥组成的直积锥，$H$ 与 $g$ 来自局部相对速度、局部线性化几何与近场接触响应。解得 $\lambda^\star$ 后，定义参考 wrench
+\begin{equation}
+ w_{\ell r}^\star
+ =
+ \sum_{k} G(x_k)\lambda_k^\star.
+\end{equation}
+
+这里的局部 dense 微求解并不替代全局 NSC，而只是为 reduced support set 提供当前时刻的高精参考目标。
+
+\subsubsection{Reduced 力分配}
+
+给定优化后的代表点集合 $Q_{\ell r}$ 与参考 wrench $w_{\ell r}^\star$，求解 reduced 点力：
+\begin{equation}
+\min_{\hat{\lambda}}
+\frac{1}{2}\hat{\lambda}^\top W \hat{\lambda}
+\end{equation}
+\begin{equation}
+\text{s.t.}\quad
+\sum_{j=1}^{m} G(q_j)\hat{\lambda}_j = w_{\ell r}^\star,
+\end{equation}
+\begin{equation}
+\hat{n}_j \ge 0,
+\qquad
+\sqrt{\hat{t}_{j1}^2+\hat{t}_{j2}^2}\le \mu_j \hat{n}_j.
+\end{equation}
+
+该问题同样是一个小型 SOCP。若可行，则说明当前 reduced support set 能对该 subpatch 的当前参考 wrench 实现\textbf{精确等效}；若不可行，则说明当前基不够强，必须执行以下操作之一：
+\begin{enumerate}[label=(\arabic*)]
+    \item 增加代表点数 $m$；
+    \item 扩大代表点支撑域并重新优化；
+    \item 将当前 subpatch 继续分裂。
+\end{enumerate}
+
+本文不允许在 reduced 力分配阶段以牺牲精度的方式“硬拟合”不可行解，而是始终以误差控制驱动模型升阶或细分。
+
+\subsection{连续区域内部非穿透监测}
+
+少量代表点接触方法的一个典型问题是：虽然代表点满足局部非穿透，但 patch 内部可能仍发生漏穿透。为此，本文在每个 subpatch 内布置一组不进入求解器的 sentinel 点
+\begin{equation}
+ \mathcal{S}_{\ell r} = \{s_i\}_{i=1}^{N_s},
+\end{equation}
+并在每一步预测后计算
+\begin{equation}
+ e_g
+ =
+ \max_{s_i\in\mathcal{S}_{\ell r}}
+ \max(0,-g(s_i)).
+\end{equation}
+
+若 $e_g$ 超过阈值 $\varepsilon_g$，则说明 reduced support set 虽然在离散支撑点上满足约束，但未能充分覆盖连续接触区域的内部；此时优先对当前 subpatch 继续细分，并在必要时增加 support points。
+
+\subsection{时间连续性与 Warm Start}
+
+由于接触区域在相邻时间步之间通常具有时序连续性，本文为每个 subpatch 维护 persistent identifier，并在相邻步之间进行匹配：
+\begin{equation}
+\mathrm{match}(\Omega_{\ell r}^{t}, \Omega_{\ell' r'}^{t+\Delta t}).
+\end{equation}
+
+匹配指标包括质心距离、平均法向夹角、面积重叠率、局部骨架重叠与代表点集合的 Hausdorff 距离。对匹配成功的 subpatch，将上一时间步的 reduced impulses $\hat{\lambda}^{\mathrm{old}}$ 传输至新的 support set，传输过程同样采用保持 wrench 等效的优化：
+\begin{equation}
+\min_{\hat{\lambda}^{\mathrm{new}}}
+\|\hat{\lambda}^{\mathrm{new}}\|_W^2
+\quad
+\text{s.t.}\quad
+\sum_j G(q_j^{\mathrm{new}})\hat{\lambda}_j^{\mathrm{new}}
+=
+\sum_j G(q_j^{\mathrm{old}})\hat{\lambda}_j^{\mathrm{old}}.
+\end{equation}
+
+这意味着 warm start 的传递对象不是逐点冲量值本身，而是对应的等效 wrench。
+
+\subsection{自适应误差控制}
+
+综合前述定义，本文在每个 subpatch 上维护以下误差：
+\begin{equation}
+ e_{\mathrm{plane}},\quad
+ e_{\mathcal{C}},\quad
+ e_w=
+ \frac{\|w^\star-\hat{w}\|}{\|w^\star\|+\varepsilon},\quad
+ e_{\mathrm{CoP}},\quad
+ e_g,\quad
+ e_{\mathrm{topo}}.
+\end{equation}
+其中 $e_w$ 衡量参考 wrench 与 reduced wrench 的匹配误差，$e_{\mathrm{CoP}}$ 衡量 CoP 的漂移误差。自适应策略如下：
+\begin{itemize}[leftmargin=2em]
+    \item 若 $e_{\mathrm{plane}}$ 或 $e_{\mathrm{topo}}$ 主导，则细分 subpatch；
+    \item 若 $e_{\mathcal{C}}$ 或 $e_{\mathrm{CoP}}$ 主导，则重新优化代表点位置；
+    \item 若 reduced 力分配不可行，则增加代表点数；
+    \item 若 $e_g$ 主导，则细分 subpatch 并增加 sentinel 点。
+\end{itemize}
+
+由此形成如下误差驱动循环：
+\begin{enumerate}[label=\arabic*.]
+    \item 构造 dense patch；
+    \item patch / subpatch 分解；
+    \item 代表点初始化与优化；
+    \item 局部参考 wrench 预测；
+    \item reduced SOCP 力分配；
+    \item 误差评估；
+    \item 若误差超阈值，则升阶或细分并重复。
+\end{enumerate}
+
+该过程体现了本文“\textbf{精度优先}”的设计原则：允许 reduced support set 的规模自适应增加，但不允许在误差失控的条件下维持低维表示。
+
+\subsection{与 Chrono NSC 的集成}
+
+Chrono 的 \verb|ChSystem| 提供了 \verb|SetContactContainer()| 接口，可替换底层 contact container；该 contact container 负责从碰撞检测系统收集接触信息并用于接触力生成。默认 \verb|AddContactCallback| 仅允许在接触被加入容器时修改复合材料参数，而不能替代几何级接触流形重构。因此，本文将所提方法集成为一个自定义 NSC contact container 或自定义接触报告模块，其工作流程为：Bullet 仅负责 broadphase 与碰撞对管理；对每个候选接触对，由本文方法构造 dense SDF 接触区域、执行多 patch / 多 subpatch 约化，并将所得 reduced support points 重新封装为普通 NSC 点接触，最终交由 Chrono NSC 的全局描述器和互补求解器处理。
+
+设最终全部 subpatch 的代表点总数为
+\begin{equation}
+N_{\mathrm{red}} = \sum_{\ell=1}^{N_p}\sum_{r=1}^{m_\ell} m_{\ell r}.
+\end{equation}
+
+则系统级接触自由度规模由原始 dense 模型的 $O(N_q)$ 降至 $O(N_{\mathrm{red}})$，同时由于每个代表点仍以标准点接触形式存在，本文方法可以无缝兼容现有 NSC 的约束装配与互补求解过程。
+
+\subsection{算法流程}
+
+\noindent\textbf{算法 1：多 Patch / 多 Subpatch 保持 Wrench 等效的 SDF 接触约化}
+
+\noindent 输入：候选接触对 $(A,B)$、SDF 几何、相对状态、误差阈值。\\
+\noindent 输出：可注入 Chrono NSC 的 reduced point contacts。
+
+\begin{enumerate}[label=\arabic*.]
+    \item 由 SDF 构造高密积分点集合 $\mathcal{Q}$；
+    \item 根据连通性与法向一致性得到 patch 集合 $\{\Omega_\ell\}$；
+    \item 对每个 patch：
+    \begin{enumerate}[label*=\arabic*.]
+        \item 初始化 subpatch 队列；
+        \item 对每个 subpatch：
+        \begin{enumerate}[label*=\arabic*.]
+            \item 计算局部平面化误差、二阶矩误差与拓扑误差；
+            \item 若误差超阈值，则分裂 subpatch；
+            \item 否则初始化代表点 $Q_{\ell r}$；
+            \item 优化 $Q_{\ell r}$ 以减小 wrench 锥误差；
+            \item 通过局部 dense 微求解得到参考 wrench $w_{\ell r}^\star$；
+            \item 解 reduced SOCP，得到代表点力 $\hat{\lambda}$；
+            \item 评估 $e_w,e_{\mathcal{C}},e_{\mathrm{CoP}},e_g$；
+            \item 若任一误差超阈值，则升阶或细分并返回步骤 3.2.1。
+        \end{enumerate}
+    \end{enumerate}
+    \item 将全部 reduced support points 转换为普通 NSC contact items；
+    \item 调用 Chrono NSC 接触容器完成系统装配与互补求解。
+\end{enumerate}
+
+\subsection{方法讨论}
+
+本文方法并不试图恢复真实的局部压力场，而是以 dense SDF 接触区域为参考，在\textbf{刚体动力学层面}保持其可行 wrench 锥与当前参考 wrench。相较于基于少量接触点缓存的流形方法，本文方法将接触约化从“缓存少量点”提升为“压缩一个连续接触区域在 wrench 空间中的可行集”；相较于直接采用 patch-level 六维接触元的方法，本文方法又保留了与 Chrono NSC 标准点接触求解链路的兼容性。因此，它特别适用于以下场景：需要高精度 body-level 合力、合力矩与作用线等效，但又希望继续复用现有 NSC 互补求解器的刚体接触动力学问题。
+
+\begin{remark}
+本文方法的核心边界在于：它追求的是刚体层面的高精度 wrench 等效，而非局部压力场、接触应力峰值或真实材料变形场的逐点重建。因此，当研究目标转向材料级接触应力与弹性变形主导的接触斑演化时，更适合采用分布式压力场或柔顺接触建模框架。
+\end{remark}

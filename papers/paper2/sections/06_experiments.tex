@@ -1,0 +1,157 @@
+\label{sec:experiments}
+
+本节给出面向后续投稿的实验设计框架。由于当前版本重点在方法论与理论层面，因此实验部分先给出完整设计、评价指标和对比基线，具体数值结果可在实现完成后补入。
+
+\subsection{实验目标}
+
+实验的总体目标是验证：本文方法相较于传统点接触流形维护方式，是否能够在保持 Chrono NSC 全局求解链路不变的前提下，更准确地重建连续接触区域在刚体动力学层面的等效 wrench，并在不同接触类型下保持稳定和一致的高精度表现。
+
+具体而言，实验应回答以下问题：
+\begin{enumerate}[label=(\arabic*)]
+    \item 在点接触、连续区域接触和长条形接触场景中，本文方法是否能显著降低合力和合力矩误差？
+    \item 在接触作用线、CoP 漂移和内部 gap 误差上，本文方法是否优于传统流形维护方法？
+    \item 多 patch / 多 subpatch 的自适应 refinement 是否能根据接触类型自动调节模型复杂度？
+    \item 在不同时间步长、摩擦系数和几何分辨率下，本文方法是否具有较好的鲁棒性？
+\end{enumerate}
+
+\subsection{实验平台与实现设置}
+
+建议的实验平台如下：
+\begin{itemize}[leftmargin=2em]
+    \item 动力学后端：Chrono NSC；
+    \item 广相与候选对管理：Bullet broadphase；
+    \item 几何表征：SDF 或表面导出 SDF；
+    \item dense 参考模型：高密度积分点 + 局部微求解；
+    \item reduced 模型：本文提出的多 patch / 多 subpatch wrench-preserving reduction；
+    \item 对比模型：默认 NSC 点接触流形、固定点数 manifold reduction、无 subpatch 的单 patch 代表点模型。
+\end{itemize}
+
+为保证可重复性，应统一以下参数：时间步长、求解器容差、摩擦系数、SDF 分辨率、接触采样密度、误差阈值和最大代表点数等。
+
+\subsection{测试场景设计}
+
+\subsubsection{场景 A：点接触基准测试}
+
+该场景用于验证本文方法在典型点接触问题中不会引入不必要误差。建议采用如下模型：
+\begin{itemize}[leftmargin=2em]
+    \item 小球--小球对心碰撞；
+    \item 小球--平面弹跳；
+    \item 低速滚动进入单点碰撞。
+\end{itemize}
+
+该类场景下，dense 接触区域本身很小，理论上本文方法应当退化为极少量 patch 与极少量代表点，并与标准点接触结果基本一致。重点评价该方法是否保持原有点接触问题的准确性与数值稳定性。
+
+\subsubsection{场景 B：连续区域接触测试}
+
+该场景用于检验本文方法在面接触或连续区域接触中的 wrench 等效能力。建议采用如下模型：
+\begin{itemize}[leftmargin=2em]
+    \item 凸轮--从动件接触；
+    \item 平板--平板局部压靠；
+    \item 曲面块体沿导轨表面滚滑接触。
+\end{itemize}
+
+该类场景中，重点观察本文方法是否能正确保持合力、合力矩和接触作用线，尤其是法向 CoP 的稳定性与切向摩擦矩的再现能力。
+
+\subsubsection{场景 C：长条形接触测试}
+
+该场景用于检验多 subpatch 策略的必要性和有效性。建议采用如下模型：
+\begin{itemize}[leftmargin=2em]
+    \item 齿轮齿面啮合局部接触；
+    \item 插销--轴承或轴--孔接触；
+    \item 细长圆柱与曲面导轨接触。
+\end{itemize}
+
+这类场景的典型特点是接触沿一个主方向强烈延展，且局部法向沿接触线发生变化。对其进行单 patch 约化通常会造成明显力矩误差，因此该类实验特别适合验证本文的多 subpatch 自适应分解策略。
+
+\subsubsection{场景 D：多 patch / 不连通接触测试}
+
+建议构造两个或多个不连通 patch 同时接触的情形，例如：
+\begin{itemize}[leftmargin=2em]
+    \item 非凸零件与平板的多点支撑；
+    \item 带凹槽零件的双边接触；
+    \item 多凸起接触足与地面的同时接触。
+\end{itemize}
+
+该场景用于验证本文方法是否能在拓扑上正确区分多个 patch，并避免不同接触区域被错误合并。
+
+\subsection{评价指标}
+
+建议采用如下指标：
+
+\paragraph{(1) Wrench 误差}
+定义 dense 参考模型给出的 wrench 为 $w_{\mathrm{dense}}$，reduced 模型给出的 wrench 为 $w_{\mathrm{red}}$，则
+\begin{equation}
+\varepsilon_w = \frac{\|w_{\mathrm{dense}}-w_{\mathrm{red}}\|}{\|w_{\mathrm{dense}}\|+\epsilon}.
+\end{equation}
+
+\paragraph{(2) 合力误差与合力矩误差}
+可分别定义
+\begin{equation}
+\varepsilon_F = \frac{\|F_{\mathrm{dense}}-F_{\mathrm{red}}\|}{\|F_{\mathrm{dense}}\|+\epsilon},
+\qquad
+\varepsilon_M = \frac{\|M_{\mathrm{dense}}-M_{\mathrm{red}}\|}{\|M_{\mathrm{dense}}\|+\epsilon}.
+\end{equation}
+
+\paragraph{(3) CoP 误差}
+若法向合力非零，则定义
+\begin{equation}
+\varepsilon_{\mathrm{CoP}} = \|c_{\mathrm{cop}}^{\mathrm{dense}}-c_{\mathrm{cop}}^{\mathrm{red}}\|.
+\end{equation}
+
+\paragraph{(4) 内部 gap 误差}
+\begin{equation}
+\varepsilon_g = \max_{s_i\in\mathcal{S}} \max(0,-g(s_i)).
+\end{equation}
+该指标用于反映 reduced 点接触是否在 patch 内部遗漏了非穿透约束。
+
+\paragraph{(5) 拓扑保持指标}
+对多个 patch 场景，统计 reduced 模型恢复的 patch 个数与 dense 参考模型的 patch 个数是否一致，并记录错误合并与错误分裂次数。
+
+\paragraph{(6) 求解规模与运行时间}
+记录最终代表点总数 $N_{\mathrm{red}}$、平均 subpatch 数、每步局部微求解时间、全局求解时间与总仿真时间，用于评估精度与计算代价之间的关系。
+
+\subsection{对比基线}
+
+建议至少设置以下基线：
+\begin{enumerate}[label=(\arabic*)]
+    \item \textbf{Baseline-1：}Chrono NSC 默认点接触管线；
+    \item \textbf{Baseline-2：}固定点数的接触流形约化，如直接保留少量接触点；
+    \item \textbf{Baseline-3：}单 patch 的代表点模型，不进行多 subpatch 细分；
+    \item \textbf{Baseline-4：}本文方法的消融版本，例如去掉局部参考 wrench 预测、去掉 sentinel gap 监测或去掉 CoP 误差约束。
+\end{enumerate}
+
+通过这些基线，可分别回答“多 patch 是否必要”“多 subpatch 是否必要”“wrench-preserving 是否必要”“局部 dense 微求解是否必要”等关键问题。
+
+\subsection{消融实验设计}
+
+建议进行如下消融：
+\begin{enumerate}[label=(\alph*)]
+    \item 去掉 $e_{\mathcal{C}}$，仅保留几何矩匹配，观察 wrench 误差变化；
+    \item 去掉 CoP 约束或 CoP 误差驱动，观察法向力矩与作用线漂移；
+    \item 去掉内部 sentinel 监测，观察 patch 内部是否出现漏穿透；
+    \item 将每个 subpatch 的代表点数固定为 3，不允许升阶，观察复杂接触下的误差上升；
+    \item 用单 patch 替代多 subpatch，观察长条形接触下的误差变化。
+\end{enumerate}
+
+\subsection{结果展示建议}
+
+正式论文中建议采用以下图表：
+\begin{itemize}[leftmargin=2em]
+    \item 不同场景下 dense patch 与 reduced support set 的可视化图；
+    \item 不同时间步的 patch / subpatch 分解与跟踪结果；
+    \item 合力误差、合力矩误差、CoP 误差与内部 gap 误差的折线图或箱线图；
+    \item 不同误差阈值下 $N_{\mathrm{red}}$ 与精度的关系曲线；
+    \item 消融实验表格与复杂度统计表。
+\end{itemize}
+
+\subsection{预期结果与讨论重点}
+
+本文预期结果包括：
+\begin{enumerate}[label=(\arabic*)]
+    \item 在点接触场景中，本文方法不显著劣于默认点接触模型；
+    \item 在连续区域接触与长条形接触中，本文方法显著降低合力矩误差与 CoP 漂移；
+    \item 多 subpatch 机制对长条形接触和多 patch 接触具有决定性作用；
+    \item 在相同全局求解框架下，本文方法能以适中的代表点数显著提升刚体层面的接触等效精度。
+\end{enumerate}
+
+讨论时应特别强调：本文方法提升的是 \textbf{body-level wrench 等效精度}，而非逐点压力场精度。因此，实验结果应围绕动力学层面的量展开，而不应把其与完整连续接触压力场重建混为一谈。

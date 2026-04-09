@@ -13,8 +13,6 @@ std::string DefaultOutputFor(platform::common::ContactAlgorithm algorithm) {
             return "data/outputs/rev_joint_clearance_mesh.csv";
         case platform::common::ContactAlgorithm::SdfFirstOrder:
             return "data/outputs/rev_joint_clearance_sdf1.csv";
-        case platform::common::ContactAlgorithm::SdfSecondOrder:
-            return "data/outputs/rev_joint_clearance_sdf2.csv";
         default:
             return "data/outputs/rev_joint_clearance.csv";
     }
@@ -45,7 +43,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Unknown argument: " << arg << std::endl;
             std::cerr << "Usage: " << argv[0]
                       << " [--dt <step_size>] [--T <total_time>] [--output <csv_path>]"
-                      << " [--contact-algorithm <mesh|sdf_1st|sdf_2nd>]" << std::endl;
+                      << " [--contact-algorithm <mesh|sdf_1st>]" << std::endl;
             return 1;
         }
     }

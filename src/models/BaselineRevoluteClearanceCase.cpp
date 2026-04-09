@@ -34,9 +34,7 @@ void BaselineRevoluteClearanceCase::SetupSystem() {
         m_config.body2_mass, m_config.body2_inertia_xx, m_config.body2_inertia_xy, m_config.friction,
         m_config.restitution, m_config.gravity_y, m_config.contact_compliance, m_config.contact_compliance_t,
         m_config.contact_damping_f, m_config.collision_envelope, m_config.dynamics_substeps, m_config.env_prefix,
-        m_config.contact_algorithm, m_config.sdf_build, m_config.sample_tuning, m_config.contact_regime,
-        m_config.use_lcp_manifold_quadrature, m_config.manifold_quadrature_contacts,
-        m_config.manifold_quadrature_span_scale, m_config.manifold_quadrature_min_half_span);
+        m_config.contact_algorithm, m_config.sdf_build, m_config.sample_tuning, m_config.contact_regime);
 }
 
 double BaselineRevoluteClearanceCase::ComputeBody3SwingAngleX(const chrono::ChVector3d& body2_pos,

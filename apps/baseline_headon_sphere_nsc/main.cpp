@@ -13,8 +13,6 @@ std::string DefaultOutputFor(platform::common::ContactAlgorithm algorithm) {
             return "data/outputs/headon_spheres_mesh.csv";
         case platform::common::ContactAlgorithm::SdfFirstOrder:
             return "data/outputs/headon_spheres_sdf1.csv";
-        case platform::common::ContactAlgorithm::SdfSecondOrder:
-            return "data/outputs/headon_spheres_sdf2.csv";
         default:
             return "data/outputs/headon_spheres.csv";
     }
@@ -60,7 +58,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Usage: " << argv[0]
                       << " [--dt <step_size>] [--T <total_time>] [--speed <sphere_a_vx>] [--speed-a <vx>] [--speed-b <vx>]"
                       << " [--density-a <rho>] [--density-b <rho>] [--pos-a <x>] [--pos-b <x>] [--output <csv_path>]"
-                      << " [--contact-algorithm <mesh|sdf_1st|sdf_2nd>]" << std::endl;
+                      << " [--contact-algorithm <mesh|sdf_1st>]" << std::endl;
             return 1;
         }
     }

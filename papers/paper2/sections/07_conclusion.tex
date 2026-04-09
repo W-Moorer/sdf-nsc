@@ -1,0 +1,13 @@
+\label{sec:conclusion}
+
+本文围绕 Chrono NSC 在连续区域接触高精度建模中的不足，提出了一种面向 SDF 的多 patch / 多 subpatch 保持 wrench 等效的接触约化方法。该方法以 dense SDF 接触区域为参考，通过 patch / subpatch 自适应分解、代表点优化、局部参考 wrench 预测、reduced SOCP 力分配以及内部 gap 监测，构建出一种既面向精度、又兼容现有 NSC 点接触求解链路的低维接触表示。本文的核心观点是：接触约化不应被视为简单的几何删点问题，而应被视为从 dense admissible wrench cone 到 reduced admissible wrench cone 的误差控制投影问题。
+
+从理论层面看，本文给出了局部共面 subpatch 的三点 wrench 完备性分析，并建立了法向可行性与 CoP 支撑域之间的几何联系；从工程实现层面看，本文方法提供了一条不重写 Chrono 全局互补求解框架、但显著改善连续接触区域刚体层面等效精度的可落地路径。
+
+未来工作可沿以下方向展开：
+\begin{enumerate}[label=(\arabic*)]
+    \item 将当前方法从刚体层面的 wrench 等效扩展到更强的 patch-level 接触元表示；
+    \item 结合更高效的 SDF 数据结构与局部微求解器，提高大规模场景中的实时性；
+    \item 在柔顺接触、弹性体接触与可微仿真框架中研究类似的 patch-level reduction 机制；
+    \item 将该方法系统实现于 Chrono 后端，并与默认 NSC 管线进行大规模定量对比。
+\end{enumerate}

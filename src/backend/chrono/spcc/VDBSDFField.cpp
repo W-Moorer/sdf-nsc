@@ -1,7 +1,7 @@
 #include "platform/backend/spcc/VDBSDFField.h"
 
 #include <cmath>
-#include <cstdlib>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -9,11 +9,8 @@
 
 #include <openvdb/io/File.h>
 #include <openvdb/openvdb.h>
+#include <openvdb/tools/Interpolation.h>
 #include <openvdb/tools/MeshToVolume.h>
-
-#include <nanovdb/NanoVDB.h>
-#include <nanovdb/math/SampleFromVoxels.h>
-#include <nanovdb/tools/CreateNanoGrid.h>
 
 namespace platform {
 namespace backend {
@@ -29,23 +26,10 @@ bool IsFiniteVec(const chrono::ChVector3d& v) {
     return IsFiniteScalar(v.x()) && IsFiniteScalar(v.y()) && IsFiniteScalar(v.z());
 }
 
-double GetEnvDouble(const char* name, double fallback) {
-    const char* value = std::getenv(name);
-    if (!value || !value[0]) {
-        return fallback;
-    }
-    char* end = nullptr;
-    const double parsed = std::strtod(value, &end);
-    if (end == value || !std::isfinite(parsed)) {
-        return fallback;
-    }
-    return parsed;
-}
-
 chrono::ChVector3d SafeNormalize(const chrono::ChVector3d& v,
                                  const chrono::ChVector3d& fallback) {
     const double n = v.Length();
-    if (!std::isfinite(n) || n <= 1e-12) {
+    if (!std::isfinite(n) || n <= 1.0e-12) {
         return fallback;
     }
     return v * (1.0 / n);
@@ -70,16 +54,27 @@ void EnsureOpenVDBInitialized() {
     (void)initialized;
 }
 
+using FloatGridSampler = openvdb::tools::GridSampler<openvdb::FloatGrid, openvdb::tools::BoxSampler>;
+
+double SamplePhiWorld(const openvdb::FloatGrid& grid, const chrono::ChVector3d& x_M) {
+    const FloatGridSampler sampler(grid);
+    return static_cast<double>(sampler.wsSample(openvdb::Vec3d(x_M.x(), x_M.y(), x_M.z())));
+}
+
+chrono::ChVector3d GetVoxelStep(const openvdb::FloatGrid& grid) {
+    const auto voxel = grid.voxelSize();
+    return chrono::ChVector3d(std::max(1.0e-6, static_cast<double>(voxel[0])),
+                              std::max(1.0e-6, static_cast<double>(voxel[1])),
+                              std::max(1.0e-6, static_cast<double>(voxel[2])));
+}
+
 }  // namespace
 
 struct VDBSDFField::Impl {
     openvdb::FloatGrid::Ptr open_grid;
-    nanovdb::GridHandle<nanovdb::HostBuffer> nano_handle;
-    const nanovdb::NanoGrid<float>* nano_grid = nullptr;
     chrono::ChVector3d bounding_center_M{0.0, 0.0, 0.0};
     double bounding_radius = 0.0;
     bool has_bounding_sphere = false;
-    bool direct_phi_hessian = false;
     bool ready = false;
     std::string last_error;
 };
@@ -98,12 +93,9 @@ bool VDBSDFField::BuildFromTriangleMesh(const chrono::ChTriangleMeshConnected& m
 
     impl_->last_error.clear();
     impl_->open_grid.reset();
-    impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
-    impl_->nano_grid = nullptr;
     impl_->bounding_center_M = chrono::ChVector3d(0.0, 0.0, 0.0);
     impl_->bounding_radius = 0.0;
     impl_->has_bounding_sphere = false;
-    impl_->direct_phi_hessian = options.direct_phi_hessian;
     impl_->ready = false;
 
     if (!IsFiniteScalar(options.voxel_size) || options.voxel_size <= 0.0) {
@@ -142,10 +134,9 @@ bool VDBSDFField::BuildFromTriangleMesh(const chrono::ChTriangleMeshConnected& m
             bbox_max.x() = std::max(bbox_max.x(), v.x());
             bbox_max.y() = std::max(bbox_max.y(), v.y());
             bbox_max.z() = std::max(bbox_max.z(), v.z());
-            points.emplace_back(
-                ToFiniteFloat(v.x(), "VDBSDFField::BuildFromTriangleMesh vertex x"),
-                ToFiniteFloat(v.y(), "VDBSDFField::BuildFromTriangleMesh vertex y"),
-                ToFiniteFloat(v.z(), "VDBSDFField::BuildFromTriangleMesh vertex z"));
+            points.emplace_back(ToFiniteFloat(v.x(), "VDBSDFField::BuildFromTriangleMesh vertex x"),
+                                ToFiniteFloat(v.y(), "VDBSDFField::BuildFromTriangleMesh vertex y"),
+                                ToFiniteFloat(v.z(), "VDBSDFField::BuildFromTriangleMesh vertex z"));
         }
 
         impl_->bounding_center_M = 0.5 * (bbox_min + bbox_max);
@@ -177,17 +168,11 @@ bool VDBSDFField::BuildFromTriangleMesh(const chrono::ChTriangleMeshConnected& m
 
         const auto transform = openvdb::math::Transform::createLinearTransform(options.voxel_size);
         std::vector<openvdb::Vec4I> quad_faces;
-
         const float half_band = ToFiniteFloat(options.half_band_width_voxels,
                                               "VDBSDFField::BuildFromTriangleMesh half_band_width_voxels");
 
         impl_->open_grid = openvdb::tools::meshToSignedDistanceField<openvdb::FloatGrid>(
-            *transform,
-            points,
-            tri_faces,
-            quad_faces,
-            half_band,
-            half_band);
+            *transform, points, tri_faces, quad_faces, half_band, half_band);
 
         if (!impl_->open_grid) {
             impl_->last_error = "VDBSDFField::BuildFromTriangleMesh failed to create OpenVDB float grid";
@@ -198,14 +183,12 @@ bool VDBSDFField::BuildFromTriangleMesh(const chrono::ChTriangleMeshConnected& m
             impl_->open_grid->setName(options.grid_name);
         }
 
-        return BuildNanoFromOpenGrid();
+        return FinalizeOpenGrid();
     } catch (const std::exception& e) {
         std::cerr << "[ERROR] OpenVDB Build Exception: " << e.what() << std::endl;
         impl_->last_error = std::string("VDBSDFField::BuildFromTriangleMesh exception: ") + e.what();
         impl_->ready = false;
         impl_->open_grid.reset();
-        impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
-        impl_->nano_grid = nullptr;
         return false;
     }
 }
@@ -217,8 +200,6 @@ bool VDBSDFField::LoadFromVDBFile(const std::string& vdb_path,
     impl_->last_error.clear();
     impl_->ready = false;
     impl_->open_grid.reset();
-    impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
-    impl_->nano_grid = nullptr;
     impl_->bounding_center_M = chrono::ChVector3d(0.0, 0.0, 0.0);
     impl_->bounding_radius = 0.0;
     impl_->has_bounding_sphere = false;
@@ -258,7 +239,7 @@ bool VDBSDFField::LoadFromVDBFile(const std::string& vdb_path,
         }
 
         impl_->open_grid = float_grid;
-        return BuildNanoFromOpenGrid();
+        return FinalizeOpenGrid();
     } catch (const std::exception& e) {
         impl_->last_error = std::string("VDBSDFField::LoadFromVDBFile exception: ") + e.what();
         return false;
@@ -276,53 +257,34 @@ const std::string& VDBSDFField::LastError() const {
 bool VDBSDFField::QueryPhiGradM(const chrono::ChVector3d& x_M,
                                 double& phi,
                                 chrono::ChVector3d& grad_M) const {
-    if (!impl_->ready || !impl_->nano_grid || !IsFiniteVec(x_M)) {
+    if (!impl_->ready || !impl_->open_grid || !IsFiniteVec(x_M)) {
         return false;
     }
 
-    const nanovdb::Vec3d x_world(x_M.x(), x_M.y(), x_M.z());
-    const auto x_index = impl_->nano_grid->worldToIndex(x_world);
+    phi = SamplePhiWorld(*impl_->open_grid, x_M);
+    const chrono::ChVector3d h = GetVoxelStep(*impl_->open_grid);
 
-    const auto accessor = impl_->nano_grid->getAccessor();
-    const auto sampler = nanovdb::math::createSampler<1>(accessor);
+    const double phi_xp = SamplePhiWorld(*impl_->open_grid, x_M + chrono::ChVector3d(h.x(), 0.0, 0.0));
+    const double phi_xm = SamplePhiWorld(*impl_->open_grid, x_M - chrono::ChVector3d(h.x(), 0.0, 0.0));
+    const double phi_yp = SamplePhiWorld(*impl_->open_grid, x_M + chrono::ChVector3d(0.0, h.y(), 0.0));
+    const double phi_ym = SamplePhiWorld(*impl_->open_grid, x_M - chrono::ChVector3d(0.0, h.y(), 0.0));
+    const double phi_zp = SamplePhiWorld(*impl_->open_grid, x_M + chrono::ChVector3d(0.0, 0.0, h.z()));
+    const double phi_zm = SamplePhiWorld(*impl_->open_grid, x_M - chrono::ChVector3d(0.0, 0.0, h.z()));
 
-    const float phi_value = sampler(x_index);
-    
-    // SampleFromVoxels<3> doesn't have .gradient(), use finite difference in index space
-    double hd = 0.5; // Half voxel step
-    nanovdb::Vec3d grad_index(
-        (sampler(nanovdb::Vec3d(x_index[0] + hd, x_index[1], x_index[2])) - sampler(nanovdb::Vec3d(x_index[0] - hd, x_index[1], x_index[2]))) / (2.0 * hd),
-        (sampler(nanovdb::Vec3d(x_index[0], x_index[1] + hd, x_index[2])) - sampler(nanovdb::Vec3d(x_index[0], x_index[1] - hd, x_index[2]))) / (2.0 * hd),
-        (sampler(nanovdb::Vec3d(x_index[0], x_index[1], x_index[2] + hd)) - sampler(nanovdb::Vec3d(x_index[0], x_index[1], x_index[2] - hd))) / (2.0 * hd)
-    );
-    const auto grad_world = impl_->nano_grid->indexToWorldGrad(grad_index);
-
-    phi = static_cast<double>(phi_value);
-    const chrono::ChVector3d grad_raw(
-        static_cast<double>(grad_world[0]),
-        static_cast<double>(grad_world[1]),
-        static_cast<double>(grad_world[2]));
+    const chrono::ChVector3d grad_raw((phi_xp - phi_xm) / (2.0 * h.x()),
+                                      (phi_yp - phi_ym) / (2.0 * h.y()),
+                                      (phi_zp - phi_zm) / (2.0 * h.z()));
     grad_M = SafeNormalize(grad_raw, chrono::ChVector3d(1.0, 0.0, 0.0));
 
-    if (!IsFiniteScalar(phi) || !IsFiniteVec(grad_M)) {
-        return false;
-    }
-    return true;
+    return IsFiniteScalar(phi) && IsFiniteVec(grad_M);
 }
 
 bool VDBSDFField::QueryPhiM(const chrono::ChVector3d& x_M, double& phi) const {
-    if (!impl_->ready || !impl_->nano_grid || !IsFiniteVec(x_M)) {
+    if (!impl_->ready || !impl_->open_grid || !IsFiniteVec(x_M)) {
         return false;
     }
 
-    const nanovdb::Vec3d x_world(x_M.x(), x_M.y(), x_M.z());
-    const auto x_index = impl_->nano_grid->worldToIndex(x_world);
-
-    const auto accessor = impl_->nano_grid->getAccessor();
-    const auto sampler = nanovdb::math::createSampler<1>(accessor);
-    const float phi_value = sampler(x_index);
-
-    phi = static_cast<double>(phi_value);
+    phi = SamplePhiWorld(*impl_->open_grid, x_M);
     return IsFiniteScalar(phi);
 }
 
@@ -342,107 +304,58 @@ bool VDBSDFField::QueryPhiGradHessianM(const chrono::ChVector3d& x_M,
                                        double& phi,
                                        chrono::ChVector3d& grad_M,
                                        chrono::ChMatrix33<>& hessian_M) const {
-    if (!QueryPhiGradM(x_M, phi, grad_M)) {
+    if (!QueryPhiGradM(x_M, phi, grad_M) || !impl_->open_grid) {
         return false;
     }
 
-    // Finite difference step (2*voxel_size) for Hessian
-    double h = impl_->nano_grid->voxelSize()[0] * 2.0;
+    const chrono::ChVector3d h = GetVoxelStep(*impl_->open_grid);
+    const chrono::ChVector3d dx(h.x(), 0.0, 0.0);
+    const chrono::ChVector3d dy(0.0, h.y(), 0.0);
+    const chrono::ChVector3d dz(0.0, 0.0, h.z());
 
-    if (impl_->direct_phi_hessian) {
-        auto phi_func = [&](const chrono::ChVector3d& point) -> double {
-            double d = 0.0;
-            chrono::ChVector3d g(0, 1, 0);
-            QueryPhiGradM(point, d, g);
-            return d;
-        };
-
-        const chrono::ChVector3d dx(h, 0, 0);
-        const chrono::ChVector3d dy(0, h, 0);
-        const chrono::ChVector3d dz(0, 0, h);
-        const double phi0 = phi;
-
-        const double phi_xp = phi_func(x_M + dx);
-        const double phi_xm = phi_func(x_M - dx);
-        const double phi_yp = phi_func(x_M + dy);
-        const double phi_ym = phi_func(x_M - dy);
-        const double phi_zp = phi_func(x_M + dz);
-        const double phi_zm = phi_func(x_M - dz);
-
-        hessian_M(0, 0) = (phi_xp - 2.0 * phi0 + phi_xm) / (h * h);
-        hessian_M(1, 1) = (phi_yp - 2.0 * phi0 + phi_ym) / (h * h);
-        hessian_M(2, 2) = (phi_zp - 2.0 * phi0 + phi_zm) / (h * h);
-
-        hessian_M(0, 1) = hessian_M(1, 0) =
-            (phi_func(x_M + dx + dy) - phi_func(x_M + dx - dy) -
-             phi_func(x_M - dx + dy) + phi_func(x_M - dx - dy)) / (4.0 * h * h);
-        hessian_M(0, 2) = hessian_M(2, 0) =
-            (phi_func(x_M + dx + dz) - phi_func(x_M + dx - dz) -
-             phi_func(x_M - dx + dz) + phi_func(x_M - dx - dz)) / (4.0 * h * h);
-        hessian_M(1, 2) = hessian_M(2, 1) =
-            (phi_func(x_M + dy + dz) - phi_func(x_M + dy - dz) -
-             phi_func(x_M - dy + dz) + phi_func(x_M - dy - dz)) / (4.0 * h * h);
-        return true;
-    }
-
-    auto grad_func = [&](const chrono::ChVector3d& point) -> chrono::ChVector3d {
-        double d;
-        chrono::ChVector3d g(0, 1, 0); // default fallback
-        QueryPhiGradM(point, d, g);
-        return g;
+    auto phi_func = [&](const chrono::ChVector3d& point) {
+        return SamplePhiWorld(*impl_->open_grid, point);
     };
 
-    chrono::ChVector3d dx(h, 0, 0);
-    chrono::ChVector3d dy(0, h, 0);
-    chrono::ChVector3d dz(0, 0, h);
+    const double phi0 = phi;
+    const double phi_xp = phi_func(x_M + dx);
+    const double phi_xm = phi_func(x_M - dx);
+    const double phi_yp = phi_func(x_M + dy);
+    const double phi_ym = phi_func(x_M - dy);
+    const double phi_zp = phi_func(x_M + dz);
+    const double phi_zm = phi_func(x_M - dz);
 
-    chrono::ChVector3d gx_p = grad_func(x_M + dx);
-    chrono::ChVector3d gx_m = grad_func(x_M - dx);
-    chrono::ChVector3d gy_p = grad_func(x_M + dy);
-    chrono::ChVector3d gy_m = grad_func(x_M - dy);
-    chrono::ChVector3d gz_p = grad_func(x_M + dz);
-    chrono::ChVector3d gz_m = grad_func(x_M - dz);
+    hessian_M(0, 0) = (phi_xp - 2.0 * phi0 + phi_xm) / (h.x() * h.x());
+    hessian_M(1, 1) = (phi_yp - 2.0 * phi0 + phi_ym) / (h.y() * h.y());
+    hessian_M(2, 2) = (phi_zp - 2.0 * phi0 + phi_zm) / (h.z() * h.z());
 
-    chrono::ChVector3d h_x = (gx_p - gx_m) / (2.0 * h);
-    chrono::ChVector3d h_y = (gy_p - gy_m) / (2.0 * h);
-    chrono::ChVector3d h_z = (gz_p - gz_m) / (2.0 * h);
+    hessian_M(0, 1) = hessian_M(1, 0) =
+        (phi_func(x_M + dx + dy) - phi_func(x_M + dx - dy) -
+         phi_func(x_M - dx + dy) + phi_func(x_M - dx - dy)) /
+        (4.0 * h.x() * h.y());
+    hessian_M(0, 2) = hessian_M(2, 0) =
+        (phi_func(x_M + dx + dz) - phi_func(x_M + dx - dz) -
+         phi_func(x_M - dx + dz) + phi_func(x_M - dx - dz)) /
+        (4.0 * h.x() * h.z());
+    hessian_M(1, 2) = hessian_M(2, 1) =
+        (phi_func(x_M + dy + dz) - phi_func(x_M + dy - dz) -
+         phi_func(x_M - dy + dz) + phi_func(x_M - dy - dz)) /
+        (4.0 * h.y() * h.z());
 
-    hessian_M(0, 0) = h_x.x(); hessian_M(0, 1) = h_x.y(); hessian_M(0, 2) = h_x.z();
-    hessian_M(1, 0) = h_y.x(); hessian_M(1, 1) = h_y.y(); hessian_M(1, 2) = h_y.z();
-    hessian_M(2, 0) = h_z.x(); hessian_M(2, 1) = h_z.y(); hessian_M(2, 2) = h_z.z();
-
-    // symmetrize
-    hessian_M = 0.5 * (hessian_M + hessian_M.transpose());
     return true;
 }
 
-bool VDBSDFField::BuildNanoFromOpenGrid() {
+bool VDBSDFField::FinalizeOpenGrid() {
     if (!impl_->open_grid) {
-        impl_->last_error = "VDBSDFField::BuildNanoFromOpenGrid missing OpenVDB float grid";
+        impl_->last_error = "VDBSDFField::FinalizeOpenGrid missing OpenVDB float grid";
         impl_->ready = false;
-        impl_->nano_grid = nullptr;
-        impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
         return false;
     }
 
-    try {
-        impl_->nano_handle = nanovdb::tools::createNanoGrid(*impl_->open_grid);
-        impl_->nano_grid = impl_->nano_handle.grid<float>();
-        impl_->ready = (impl_->nano_grid != nullptr);
-        if (!impl_->ready) {
-            impl_->last_error = "VDBSDFField::BuildNanoFromOpenGrid produced no float NanoVDB grid";
-        }
-        return impl_->ready;
-    } catch (const std::exception& e) {
-        impl_->last_error = std::string("VDBSDFField::BuildNanoFromOpenGrid exception: ") + e.what();
-        impl_->ready = false;
-        impl_->nano_grid = nullptr;
-        impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
-        return false;
-    }
+    impl_->ready = true;
+    return true;
 }
 
 }  // namespace spcc
 }  // namespace backend
 }  // namespace platform
-

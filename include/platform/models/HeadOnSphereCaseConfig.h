@@ -34,18 +34,18 @@ struct HeadOnSphereCaseConfig {
     double total_time = 0.5;
     int dynamics_substeps = 4;
     std::string env_prefix = "SPCC_HEADON";
-    platform::common::ContactAlgorithm contact_algorithm = platform::common::ContactAlgorithm::SdfSecondOrder;
+    platform::common::ContactAlgorithm contact_algorithm = platform::common::ContactAlgorithm::SdfFirstOrder;
 
     // SPCC tuning
     platform::backend::spcc::SdfBuildTuning sdf_build =
         platform::backend::spcc::MakeHeadOnSphereSdfBuildDefaults();
     platform::backend::spcc::SurfaceSampleTuning sample_tuning =
         platform::backend::spcc::MakeHeadOnSphereSurfaceSampleDefaults();
-    platform::backend::spcc::ContactRegimeConfig contact_regime =
-        platform::backend::spcc::MakeHeadOnSphereDefaults();
+    platform::backend::spcc::CompressedContactConfig contact_regime =
+        platform::backend::spcc::MakeHeadOnSphereCompressedDefaults();
 
     // Output
-    std::string output_csv_path = "data/outputs/headon_spheres_sdf2.csv";
+    std::string output_csv_path = "data/outputs/headon_spheres_sdf1.csv";
 };
 
 }  // namespace models

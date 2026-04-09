@@ -1,0 +1,54 @@
+\label{sec:analysis}
+
+\subsection{单点纯力等效的边界}
+
+设某连续接触区域关于参考点 $O$ 的结果 wrench 为 $(F,M_O)$。若试图仅用一个作用于点 $q$ 的单力 $F$ 来等效，则必有
+\begin{equation}
+M_O = (q-O)\times F.
+\end{equation}
+因此必然满足
+\begin{equation}
+M_O \cdot F = 0.
+\end{equation}
+
+这说明：当连续接触区域存在沿合力方向的自由矩分量时，单点纯力表示不再精确可行，必须引入多个接触点或 patch-level 接触 wrench。该结果也从理论上解释了为何仅靠单个代表点无法统一处理一般面接触与长条接触。
+
+\subsection{局部共面条件下的三点完备性}
+
+局部共面 subpatch 的三点完备性已在第~\ref{sec:method} 节给出。进一步地，对任意目标局部 wrench $w=(T_x,T_y,N,M_x,M_y,M_z)^\top$，若三点非共线，则在忽略库仑锥约束时，总存在一点力组合使三点系统精确表示该 wrench。换言之，三点支持集已经构成了局部六维 wrench 的最小生成基。
+
+这一性质为本文的多级约化策略提供了基础：默认情况下，局部近共面 subpatch 以三点表示即可；仅当法向可行性、摩擦可行性、CoP 支撑范围或内部 gap 误差不满足时，才需要增加点数或细分 subpatch。
+
+\subsection{局部平面化误差的定性上界}
+
+设某 subpatch 的最大主曲率为 $\kappa_{\max}$，其局部直径为 $D$。若以局部切平面对其进行几何近似，则高度误差具有典型的二阶尺度，可记为
+\begin{equation}
+\Delta h = O(\kappa_{\max} D^2).
+\end{equation}
+
+对应到关于 patch 质心的力矩误差，其量纲上可写为
+\begin{equation}
+\|\Delta M\| \le C\,\kappa_{\max}D^2\|F\|,
+\end{equation}
+其中 $C$ 为与局部参数化和载荷分布有关的常数。该表达式并非严格封闭形式上界，而是说明：当曲率增大或 subpatch 尺度增大时，局部共面假设将迅速变差，必须通过细分 subpatch 控制误差。
+
+\subsection{摩擦可行性与代表点支撑半径}
+
+对给定总法向载荷 $N$ 和切向扭矩需求 $M_z$，若 reduced support set 的几何支撑半径过小，则即使总切向合力大小不大，仍可能因杠杆臂不足而无法满足
+\begin{equation}
+\sqrt{\hat{t}_{j1}^2+\hat{t}_{j2}^2}\le \mu_j\hat{n}_j.
+\end{equation}
+
+因此，代表点的位置不仅影响法向 CoP 的可行性，也直接影响切向扭矩的可实现性。这一现象说明，仅通过“选择最深的几点”并不能构造好的支持基；需要同时考虑几何尺度、一二阶矩与 wrench cone gap。
+
+\subsection{复杂度讨论}
+
+设某接触对的 dense 积分点数为 $N_q$，最终 reduced 代表点总数为 $N_{\mathrm{red}}$。则本文方法的额外代价主要来自：
+\begin{enumerate}[label=(\arabic*)]
+    \item dense 接触区域采样与 patch 图构建；
+    \item patch / subpatch 自适应细分；
+    \item 每个 subpatch 的小规模代表点优化；
+    \item 每个 subpatch 的局部 dense 微求解与 reduced SOCP 力分配。
+\end{enumerate}
+
+相较于直接将全部 dense 积分点送入全局 NSC 求解器，本文方法将全局约束维度控制在 $O(N_{\mathrm{red}})$，并把精度主要花在局部 subpatch 的小规模优化上。这一设计适合“局部高精、全局保持可解”的仿真场景。

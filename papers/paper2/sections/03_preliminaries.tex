@@ -1,0 +1,24 @@
+\label{sec:preliminaries}
+
+\subsection{Chrono NSC 中的接触求解链路}
+
+在 Chrono NSC 框架中，碰撞后端首先给出候选接触对及其对应的接触点信息；随后这些信息被封装为接触容器中的接触对象，并进一步装配到全局系统描述器中；最终，互补求解器在变量增量与约束乘子空间中求得各接触反力分量。该链路天然更偏向“一个离散接触点对应一个接触约束块”的建模模式，因此若直接输入少量离散接触点，则求解器能高效工作，但连续区域接触的物理语义会在进入求解器之前被压缩。
+
+\subsection{为何仅增加接触点数量并不能根本解决问题}
+
+直观上，似乎可以通过简单增加接触点数量来提高精度。然而，这种做法存在两方面局限：第一，离散点的几何分布未必能正确保持结果力矩与作用线；第二，接触点数量的增加会直接增大全局求解规模，却不一定显著改善等效 wrench 精度。因此，问题的关键不是“输入多少点”，而是“输入的点是否构成了对连续区域接触 wrench 的良好低维基”。
+
+\subsection{基本记号}
+
+为方便后续推导，本文统一采用如下记号：
+\begin{itemize}[leftmargin=2em]
+    \item $\Omega$：某一候选接触对的连续接触区域；
+    \item $\Omega_\ell$：第 $\ell$ 个 patch；
+    \item $\Omega_{\ell r}$：第 $\ell$ 个 patch 内的第 $r$ 个 subpatch；
+    \item $\mathcal{Q}$：dense 积分点集合；
+    \item $Q_{\ell r}$：subpatch 的 reduced support set；
+    \item $w$：局部六维 wrench，按 $(T_x,T_y,N,M_x,M_y,M_z)^\top$ 排列；
+    \item $\mathcal{C}_{\mathrm{dense}}$ 与 $\mathcal{C}_{\mathrm{red}}$：分别表示 dense 与 reduced 可行 wrench 锥；
+    \item CoP：中心压力点（center of pressure）；
+    \item $e_{\mathrm{plane}}, e_{\mathcal{C}}, e_w, e_{\mathrm{CoP}}, e_g$：几何与力学误差指标。
+\end{itemize}

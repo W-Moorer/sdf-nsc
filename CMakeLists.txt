@@ -31,9 +31,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 # Common library (Backend implementation)
 set(PLATFORM_BACKEND_SOURCES
     src/backend/chrono/ChronoRigidSystemNSC.cpp
-    src/backend/chrono/spcc/SPCCProblem.cpp
-    src/backend/chrono/spcc/ContactActivation.cpp
-    src/backend/chrono/spcc/ContactManifold.cpp
+    src/backend/chrono/spcc/CompressedContactPipeline.cpp
+    src/backend/chrono/spcc/DenseSurfaceSampler.cpp
     src/models/BaselineDropCase.cpp
     src/models/BaselineHeadOnSphereCase.cpp
     src/models/BaselineRevoluteClearanceCase.cpp
@@ -46,7 +45,6 @@ set(PLATFORM_BACKEND_SOURCES
 if(SPCC_ENABLE_VDB)
     list(APPEND PLATFORM_BACKEND_SOURCES
         src/backend/chrono/spcc/VDBSDFField.cpp
-        src/backend/chrono/spcc/SampleBVH.cpp
     )
 endif()
 
@@ -292,8 +290,7 @@ if(BUILD_TESTING)
     target_link_libraries(gtest_local PUBLIC Threads::Threads)
 
     add_executable(spcc_tests
-        tests/spcc/SPCCProblem_test.cpp
-        tests/spcc/ContactActivation_test.cpp
+        tests/spcc/CompressedContactPipeline_test.cpp
     )
 
     if(SPCC_ENABLE_VDB)

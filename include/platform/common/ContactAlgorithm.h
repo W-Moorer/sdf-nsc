@@ -8,7 +8,6 @@ namespace common {
 enum class ContactAlgorithm {
     NativeMesh,
     SdfFirstOrder,
-    SdfSecondOrder,
 };
 
 inline const char* ContactAlgorithmToCliName(ContactAlgorithm algorithm) {
@@ -17,8 +16,6 @@ inline const char* ContactAlgorithmToCliName(ContactAlgorithm algorithm) {
             return "mesh";
         case ContactAlgorithm::SdfFirstOrder:
             return "sdf_1st";
-        case ContactAlgorithm::SdfSecondOrder:
-            return "sdf_2nd";
         default:
             return "unknown";
     }
@@ -34,7 +31,7 @@ inline bool ParseContactAlgorithm(const std::string& value, ContactAlgorithm& ou
         return true;
     }
     if (value == "sdf_2nd" || value == "sdf2" || value == "hessian" || value == "hessian_sdf") {
-        out_algorithm = ContactAlgorithm::SdfSecondOrder;
+        out_algorithm = ContactAlgorithm::SdfFirstOrder;
         return true;
     }
     return false;

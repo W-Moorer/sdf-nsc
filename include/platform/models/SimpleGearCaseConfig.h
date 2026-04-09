@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/common/ContactAlgorithm.h"
 #include "platform/backend/spcc/ContactTuning.h"
 
 #include <string>
@@ -37,14 +38,14 @@ struct SimpleGearCaseConfig {
     // Simulation settings.
     double step_size = 0.001;
     double total_time = 1.0;
-    int sdf_type = 2; // 0=mesh, 1=std sdf, 2=hessian sdf
+    platform::common::ContactAlgorithm contact_algorithm = platform::common::ContactAlgorithm::SdfFirstOrder;
 
     // Case-specific SPCC tuning.
     platform::backend::spcc::SdfBuildTuning sdf_build = platform::backend::spcc::MakeGearSdfBuildDefaults();
     platform::backend::spcc::SurfaceSampleTuning sample_tuning =
         platform::backend::spcc::MakeGearSurfaceSampleDefaults();
-    platform::backend::spcc::ContactRegimeConfig contact_regime =
-        platform::backend::spcc::MakeGearCompactDefaults();
+    platform::backend::spcc::CompressedContactConfig contact_regime =
+        platform::backend::spcc::MakeGearCompressedDefaults();
 
     // Output.
     std::string output_csv_path = "data/outputs/baseline_simple_gear_nsc.csv";
