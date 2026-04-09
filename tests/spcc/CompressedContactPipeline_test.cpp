@@ -1,5 +1,7 @@
 #include "platform/backend/spcc/CompressedContactPipeline.h"
 
+#include <algorithm>
+
 #include <gtest/gtest.h>
 
 namespace {
@@ -285,10 +287,21 @@ TEST(CompressedContactPipelineTest, PreservesPersistentIdAcrossSmallMotion) {
     ASSERT_FALSE(reduced_b.empty());
     EXPECT_EQ(stats_a.patch_count, 1u);
     EXPECT_EQ(stats_b.patch_count, 1u);
+    ASSERT_EQ(reduced_a.size(), reduced_b.size());
     for (const auto& contact : reduced_a) {
         EXPECT_NE(contact.persistent_id, 0u);
     }
+
+    std::vector<std::size_t> support_ids_a;
+    std::vector<std::size_t> support_ids_b;
+    for (const auto& contact : reduced_a) {
+        support_ids_a.push_back(contact.support_id);
+    }
     for (const auto& contact : reduced_b) {
         EXPECT_EQ(contact.persistent_id, reduced_a.front().persistent_id);
+        support_ids_b.push_back(contact.support_id);
     }
+    std::sort(support_ids_a.begin(), support_ids_a.end());
+    std::sort(support_ids_b.begin(), support_ids_b.end());
+    EXPECT_EQ(support_ids_b, support_ids_a);
 }

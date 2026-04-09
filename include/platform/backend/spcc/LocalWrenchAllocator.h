@@ -40,6 +40,7 @@ class LocalWrenchAllocator {
 
     static void Allocate(const std::vector<SupportWrenchPoint>& supports,
                          const ReferenceWrench& reference,
+                         double temporal_regularization,
                          WrenchAllocationResult& out_result);
 };
 

@@ -25,7 +25,7 @@ TEST(LocalWrenchAllocatorTest, MatchesForceAndMomentWithNonnegativeLoads) {
     reference.total_load = 4.0;
 
     WrenchAllocationResult result;
-    LocalWrenchAllocator::Allocate(supports, reference, result);
+    LocalWrenchAllocator::Allocate(supports, reference, 1.0e-10, result);
 
     ASSERT_TRUE(result.feasible);
     ASSERT_EQ(result.loads.size(), 2u);

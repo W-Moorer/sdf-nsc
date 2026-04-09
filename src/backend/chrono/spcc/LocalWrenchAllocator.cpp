@@ -176,6 +176,7 @@ ReferenceWrench LocalWrenchAllocator::BuildDenseReference(const std::vector<Dens
 
 void LocalWrenchAllocator::Allocate(const std::vector<SupportWrenchPoint>& supports,
                                     const ReferenceWrench& reference,
+                                    double temporal_regularization,
                                     WrenchAllocationResult& out_result) {
     out_result = WrenchAllocationResult{};
     out_result.loads.assign(supports.size(), 0.0);
@@ -195,7 +196,7 @@ void LocalWrenchAllocator::Allocate(const std::vector<SupportWrenchPoint>& suppo
         initial_loads.push_back(std::max(0.0, support.initial_load));
     }
 
-    const double regularization = 1.0e-10;
+    const double regularization = std::max(0.0, temporal_regularization);
     const std::size_t n = supports.size();
     const std::size_t mask_limit = static_cast<std::size_t>(1) << n;
     double best_objective = std::numeric_limits<double>::infinity();

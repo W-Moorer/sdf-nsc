@@ -33,6 +33,7 @@ struct CompressedContactConfig {
     int min_dense_points_per_subpatch = 0;
     int max_reduced_points_per_patch = 4;
     double warm_start_match_radius = 0.0;
+    double temporal_load_regularization = 1.0e-10;
     double max_wrench_error = 0.05;
     double max_cop_error = 0.001;
     double max_gap_error = 0.001;
@@ -74,6 +75,7 @@ inline CompressedContactConfig MakeCamCompressedDefaults() {
     cfg.min_dense_points_per_subpatch = 12;
     cfg.max_reduced_points_per_patch = 4;
     cfg.warm_start_match_radius = 4.0e-3;
+    cfg.temporal_load_regularization = 1.0e-8;
     cfg.max_wrench_error = 0.05;
     cfg.max_cop_error = 1.0e-3;
     cfg.max_gap_error = 1.0e-3;
@@ -137,6 +139,7 @@ inline CompressedContactConfig MakeHeadOnSphereCompressedDefaults() {
     cfg.min_dense_points_per_subpatch = 8;
     cfg.max_reduced_points_per_patch = 1;
     cfg.warm_start_match_radius = 1.0e-3;
+    cfg.temporal_load_regularization = 1.0e-10;
     cfg.max_wrench_error = 0.01;
     cfg.max_cop_error = 5.0e-4;
     cfg.max_gap_error = 5.0e-4;
@@ -179,6 +182,7 @@ inline CompressedContactConfig MakeGearCompressedDefaults() {
     cfg.min_dense_points_per_subpatch = 10;
     cfg.max_reduced_points_per_patch = 4;
     cfg.warm_start_match_radius = 2.0e-4;
+    cfg.temporal_load_regularization = 1.0e-8;
     cfg.max_wrench_error = 0.04;
     cfg.max_cop_error = 2.0e-4;
     cfg.max_gap_error = 2.0e-4;

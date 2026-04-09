@@ -211,6 +211,7 @@ CompressedContactConfig MakeDynamicConfig() {
     cfg.min_dense_points_per_subpatch = 0;
     cfg.max_reduced_points_per_patch = 4;
     cfg.warm_start_match_radius = 6.0e-3;
+    cfg.temporal_load_regularization = 1.0e-6;
     cfg.max_wrench_error = 0.08;
     cfg.max_cop_error = 2.5e-3;
     cfg.max_gap_error = 0.25;

@@ -93,6 +93,8 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
         GetScopedEnvInt(env_prefix, "MAX_REDUCED_POINTS_PER_PATCH", cfg.max_reduced_points_per_patch);
     cfg.warm_start_match_radius =
         GetScopedEnvDouble(env_prefix, "WARM_START_MATCH_RADIUS", cfg.warm_start_match_radius);
+    cfg.temporal_load_regularization =
+        GetScopedEnvDouble(env_prefix, "TEMPORAL_LOAD_REGULARIZATION", cfg.temporal_load_regularization);
     cfg.max_wrench_error = GetScopedEnvDouble(env_prefix, "MAX_WRENCH_ERROR", cfg.max_wrench_error);
     cfg.max_cop_error = GetScopedEnvDouble(env_prefix, "MAX_COP_ERROR", cfg.max_cop_error);
     cfg.max_gap_error = GetScopedEnvDouble(env_prefix, "MAX_GAP_ERROR", cfg.max_gap_error);
