@@ -280,6 +280,29 @@ double LookupPreviousAllocatedLoad(const ReducedSupportAggregate& support,
     return best_load;
 }
 
+chrono::ChVector3d LookupPreviousAllocatedForce(const ReducedSupportAggregate& support,
+                                                const std::vector<ReducedContactPoint>& previous_contacts,
+                                                double match_radius) {
+    if (previous_contacts.empty()) {
+        return support.allocated_force_W;
+    }
+
+    double best_distance = std::numeric_limits<double>::infinity();
+    chrono::ChVector3d best_force_W = support.allocated_force_W;
+    for (const auto& previous : previous_contacts) {
+        const double distance = (previous.x_W - support.x_W).Length();
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_force_W = previous.allocated_force_W;
+        }
+    }
+
+    if (match_radius > 0.0 && best_distance > 2.0 * match_radius) {
+        return support.allocated_force_W;
+    }
+    return best_force_W;
+}
+
 std::vector<std::ptrdiff_t> MatchSupportsToPrevious(const std::vector<ReducedSupportAggregate>& supports,
                                                     const std::vector<ReducedContactPoint>& previous_contacts,
                                                     double match_radius) {
@@ -664,6 +687,26 @@ double ComputeSubpatchGapError(const DenseSubpatch& subpatch,
     return max_gap_error;
 }
 
+double ComputeSubpatchGapMismatch(const std::vector<DenseContactPoint>& dense_points,
+                                  const DenseSubpatch& subpatch,
+                                  const std::vector<ReducedSupportAggregate>& supports) {
+    if (subpatch.members.empty() || supports.empty()) {
+        return 0.0;
+    }
+
+    double dense_worst_gap = 0.0;
+    for (const auto point_index : subpatch.members) {
+        dense_worst_gap = std::min(dense_worst_gap, dense_points[point_index].phi_eff);
+    }
+
+    double reduced_worst_gap = 0.0;
+    for (const auto& support : supports) {
+        reduced_worst_gap = std::min(reduced_worst_gap, support.phi_eff);
+    }
+
+    return std::abs(reduced_worst_gap - dense_worst_gap);
+}
+
 }  // namespace
 
 void CompressedContactPipeline::Configure(const CompressedContactConfig& cfg) {
@@ -757,63 +800,85 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         if (cfg_.max_subpatch_diameter > 0.0 && subpatch.diameter <= 0.75 * cfg_.max_subpatch_diameter) {
             target_points = std::min(target_points, 3);
         }
-
-        auto supports = BuildReducedSupportsForSubpatch(dense_points, subpatch, selection_previous_contacts,
-                                                        cfg_.warm_start_match_radius, target_points);
-        const auto matched_supports =
-            MatchSupportsToPrevious(supports, previous_local_contacts, cfg_.warm_start_match_radius);
-        const auto support_ids = AssignSupportIds(matched_supports, previous_local_contacts);
-        std::vector<std::size_t> support_order(supports.size());
-        std::iota(support_order.begin(), support_order.end(), 0);
-        std::sort(support_order.begin(), support_order.end(),
-                  [&support_ids](std::size_t a, std::size_t b) { return support_ids[a] < support_ids[b]; });
         const ReferenceWrench dense_reference =
             LocalWrenchAllocator::BuildDenseReference(dense_points, subpatch.members, subpatch.centroid_W,
                                                      mu_default);
         const ReferenceWrench reference =
             BlendTemporalReference(dense_reference, matched_previous_state, cfg_.temporal_reference_blend);
+        std::vector<ReducedSupportAggregate> supports;
+        std::vector<std::ptrdiff_t> matched_supports;
+        std::vector<std::size_t> support_ids;
+        std::vector<std::size_t> support_order;
+        double subpatch_gap_error = 0.0;
+        double subpatch_gap_mismatch = 0.0;
+        while (true) {
+            supports = BuildReducedSupportsForSubpatch(dense_points, subpatch, selection_previous_contacts,
+                                                       cfg_.warm_start_match_radius, target_points);
+            matched_supports =
+                MatchSupportsToPrevious(supports, previous_local_contacts, cfg_.warm_start_match_radius);
+            support_ids = AssignSupportIds(matched_supports, previous_local_contacts);
+            support_order.resize(supports.size());
+            std::iota(support_order.begin(), support_order.end(), 0);
+            std::sort(support_order.begin(), support_order.end(),
+                      [&support_ids](std::size_t a, std::size_t b) { return support_ids[a] < support_ids[b]; });
 
-        if (!supports.empty()) {
-            std::vector<SupportWrenchPoint> support_points;
-            support_points.reserve(supports.size());
-            for (std::size_t support_index = 0; support_index < supports.size(); ++support_index) {
-                const auto& support = supports[support_index];
-                SupportWrenchPoint point;
-                point.x_W = support.x_W;
-                point.n_W = support.n_W;
-                BuildSupportBasis(point.n_W, subpatch.t1_W, point.t1_W, point.t2_W);
-                point.mu = mu_default;
-                if (matched_supports[support_index] >= 0) {
-                    point.initial_load = std::max(
-                        0.0, previous_local_contacts[static_cast<std::size_t>(matched_supports[support_index])]
-                                 .allocated_load);
-                } else {
-                    point.initial_load =
-                        LookupPreviousAllocatedLoad(support, previous_local_contacts, cfg_.warm_start_match_radius);
+            if (!supports.empty()) {
+                std::vector<SupportWrenchPoint> support_points;
+                support_points.reserve(supports.size());
+                for (std::size_t support_index = 0; support_index < supports.size(); ++support_index) {
+                    const auto& support = supports[support_index];
+                    SupportWrenchPoint point;
+                    point.x_W = support.x_W;
+                    point.n_W = support.n_W;
+                    BuildSupportBasis(point.n_W, subpatch.t1_W, point.t1_W, point.t2_W);
+                    point.mu = mu_default;
+                    if (matched_supports[support_index] >= 0) {
+                        const auto& matched_contact =
+                            previous_local_contacts[static_cast<std::size_t>(matched_supports[support_index])];
+                        point.initial_load = std::max(
+                            0.0, matched_contact.allocated_load);
+                        point.initial_force_W = matched_contact.allocated_force_W;
+                    } else {
+                        point.initial_load =
+                            LookupPreviousAllocatedLoad(support, previous_local_contacts, cfg_.warm_start_match_radius);
+                        point.initial_force_W =
+                            LookupPreviousAllocatedForce(support, previous_local_contacts, cfg_.warm_start_match_radius);
+                    }
+                    support_points.push_back(point);
                 }
-                support_points.push_back(point);
+
+                WrenchAllocationResult allocation;
+                LocalWrenchAllocator::Allocate(support_points, reference, cfg_.temporal_load_regularization,
+                                               allocation);
+                max_subpatch_force_residual = std::max(max_subpatch_force_residual, allocation.force_residual);
+                max_subpatch_moment_residual = std::max(max_subpatch_moment_residual, allocation.moment_residual);
+
+                if (allocation.feasible && allocation.loads.size() == supports.size()) {
+                    for (std::size_t i = 0; i < supports.size(); ++i) {
+                        supports[i].allocated_load = allocation.loads[i];
+                        if (allocation.forces_W.size() == supports.size()) {
+                            supports[i].allocated_force_W = allocation.forces_W[i];
+                        } else {
+                            supports[i].allocated_force_W = allocation.loads[i] * supports[i].n_W;
+                        }
+                        if (supports[i].phi_eff < -1.0e-12) {
+                            supports[i].support_weight =
+                                allocation.loads[i] / std::max(1.0e-12, -supports[i].phi_eff);
+                        } else {
+                            supports[i].support_weight = supports[i].area_weight;
+                        }
+                    }
+                }
             }
 
-            WrenchAllocationResult allocation;
-            LocalWrenchAllocator::Allocate(support_points, reference, cfg_.temporal_load_regularization, allocation);
-            max_subpatch_force_residual = std::max(max_subpatch_force_residual, allocation.force_residual);
-            max_subpatch_moment_residual = std::max(max_subpatch_moment_residual, allocation.moment_residual);
-
-            if (allocation.feasible && allocation.loads.size() == supports.size()) {
-                for (std::size_t i = 0; i < supports.size(); ++i) {
-                    supports[i].allocated_load = allocation.loads[i];
-                    if (allocation.forces_W.size() == supports.size()) {
-                        supports[i].allocated_force_W = allocation.forces_W[i];
-                    } else {
-                        supports[i].allocated_force_W = allocation.loads[i] * supports[i].n_W;
-                    }
-                    if (supports[i].phi_eff < -1.0e-12) {
-                        supports[i].support_weight = allocation.loads[i] / std::max(1.0e-12, -supports[i].phi_eff);
-                    } else {
-                        supports[i].support_weight = supports[i].area_weight;
-                    }
-                }
+            subpatch_gap_error = ComputeSubpatchGapError(subpatch, supports, master_state, sdf, cfg_);
+            subpatch_gap_mismatch = ComputeSubpatchGapMismatch(dense_points, subpatch, supports);
+            const double combined_gap_metric = std::max(subpatch_gap_error, subpatch_gap_mismatch);
+            if (!(cfg_.max_gap_error > 0.0) || combined_gap_metric <= cfg_.max_gap_error ||
+                target_points >= cfg_.max_reduced_points_per_patch) {
+                break;
             }
+            ++target_points;
         }
 
         double mean_allocated_load = 0.0;
@@ -824,8 +889,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             mean_allocated_load /= static_cast<double>(supports.size());
         }
 
-        max_subpatch_gap_error = std::max(max_subpatch_gap_error,
-                                          ComputeSubpatchGapError(subpatch, supports, master_state, sdf, cfg_));
+        max_subpatch_gap_error = std::max(max_subpatch_gap_error, std::max(subpatch_gap_error, subpatch_gap_mismatch));
 
         const std::size_t contacts_begin = out_contacts.size();
         for (const auto support_index : support_order) {
@@ -853,6 +917,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.area_weight = support.area_weight;
             reduced.support_weight = support.support_weight;
             reduced.allocated_load = support.allocated_load;
+            reduced.allocated_force_W = support.allocated_force_W;
             reduced.stencil_half_extent =
                 (reduced.emission_count > 1) ? std::min(0.35 * support.coverage_radius, 0.15 * subpatch.diameter)
                                              : 0.0;
@@ -902,6 +967,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         out_stats->epsilon_M = 0.0;
         out_stats->epsilon_CoP = 0.0;
         out_stats->epsilon_gap = max_subpatch_gap_error;
+        out_stats->dense_worst_gap = 0.0;
+        out_stats->reduced_worst_gap = 0.0;
         return;
     }
 
@@ -928,11 +995,6 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     const chrono::ChVector3d reduced_moment = ProxyMoment(reduced_proxy, dense_cop);
 
     const double dense_force_norm = std::max(1.0e-12, dense_force.Length());
-    double dense_worst_gap = 0.0;
-    for (const auto& dense : dense_points) {
-        dense_worst_gap = std::min(dense_worst_gap, dense.phi_eff);
-    }
-    const double dense_gap = std::max(1.0e-12, std::abs(dense_worst_gap));
     double characteristic_radius = 0.0;
     for (const auto& dense : dense_points) {
         characteristic_radius = std::max(characteristic_radius, (dense.x_W - dense_cop).Length());
@@ -945,11 +1007,17 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     out_stats->epsilon_CoP = (reduced_cop - dense_cop).Length();
 
     double reduced_worst_gap = 0.0;
+    double dense_worst_gap = 0.0;
+    for (const auto& dense : dense_points) {
+        dense_worst_gap = std::min(dense_worst_gap, dense.phi_eff);
+    }
     for (const auto& reduced : out_contacts) {
         reduced_worst_gap = std::min(reduced_worst_gap, reduced.phi_eff);
     }
-    const double worst_gap_mismatch = std::abs(reduced_worst_gap - dense_worst_gap) / dense_gap;
-    out_stats->epsilon_gap = std::max(worst_gap_mismatch, max_subpatch_gap_error / dense_gap);
+    const double worst_gap_mismatch = std::abs(reduced_worst_gap - dense_worst_gap);
+    out_stats->epsilon_gap = std::max(worst_gap_mismatch, max_subpatch_gap_error);
+    out_stats->dense_worst_gap = dense_worst_gap;
+    out_stats->reduced_worst_gap = reduced_worst_gap;
 }
 
 }  // namespace spcc

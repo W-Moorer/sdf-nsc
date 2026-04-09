@@ -290,7 +290,7 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
     out << "scenario,description,total_samples,candidate_count,dense_count,reduced_count,compression_ratio,"
            "patch_count,subpatch_count,expected_patch_count,bvh_nodes_visited,bvh_nodes_pruned_obb,bvh_nodes_pruned_sdf,"
            "bvh_leaf_samples_tested,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,max_subpatch_plane_error,"
-           "max_subpatch_gap_error,max_subpatch_force_residual,max_subpatch_moment_residual,"
+           "max_subpatch_gap_error,dense_worst_gap,reduced_worst_gap,max_subpatch_force_residual,max_subpatch_moment_residual,"
            "dense_force_norm,reduced_force_norm,dense_moment_norm,reduced_moment_norm,pass\n";
     for (const auto& result : results) {
         const double dense_count = static_cast<double>(result.report.stats.dense_count);
@@ -316,6 +316,8 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
             << result.report.stats.epsilon_gap << ','
             << result.report.stats.max_subpatch_plane_error << ','
             << result.report.stats.max_subpatch_gap_error << ','
+            << result.report.stats.dense_worst_gap << ','
+            << result.report.stats.reduced_worst_gap << ','
             << result.report.stats.max_subpatch_force_residual << ','
             << result.report.stats.max_subpatch_moment_residual << ','
             << result.report.dense_wrench.force_W.Length() << ','
@@ -350,6 +352,8 @@ void PrintScenarioResult(const ScenarioResult& result) {
               << " epsGap=" << result.report.stats.epsilon_gap
               << " plane=" << result.report.stats.max_subpatch_plane_error
               << " sentGap=" << result.report.stats.max_subpatch_gap_error
+              << " denseGap=" << result.report.stats.dense_worst_gap
+              << " redGap=" << result.report.stats.reduced_worst_gap
               << " subF=" << result.report.stats.max_subpatch_force_residual
               << " subM=" << result.report.stats.max_subpatch_moment_residual << '\n';
     std::cout << "  dense wrench    : |F|=" << result.report.dense_wrench.force_W.Length()

@@ -35,6 +35,7 @@ struct ReducedContactPoint {
     double area_weight = 0.0;
     double support_weight = 0.0;
     double allocated_load = 0.0;
+    chrono::ChVector3d allocated_force_W;
     double stencil_half_extent = 0.0;
     double mu = 0.0;
 };
@@ -54,6 +55,8 @@ struct CompressionStats {
     double epsilon_M = 0.0;
     double epsilon_CoP = 0.0;
     double epsilon_gap = 0.0;
+    double dense_worst_gap = 0.0;
+    double reduced_worst_gap = 0.0;
     double max_subpatch_plane_error = 0.0;
     double max_subpatch_gap_error = 0.0;
     double max_subpatch_force_residual = 0.0;

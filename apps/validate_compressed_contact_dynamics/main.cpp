@@ -239,19 +239,19 @@ CompressedContactConfig MakeDynamicConfig() {
     cfg.patch_radius = 4.0e-2;
     cfg.normal_cos_min = 0.93;
     cfg.max_patch_diameter = 8.0e-2;
-    cfg.max_subpatch_diameter = 0.0;
-    cfg.max_plane_error = 0.0;
-    cfg.sentinel_spacing = 0.0;
-    cfg.sentinel_margin = 0.0;
-    cfg.max_subpatch_depth = 0;
-    cfg.min_dense_points_per_subpatch = 0;
-    cfg.max_reduced_points_per_patch = 4;
+    cfg.max_subpatch_diameter = 3.0e-2;
+    cfg.max_plane_error = 1.0e-3;
+    cfg.sentinel_spacing = 8.0e-3;
+    cfg.sentinel_margin = 2.0e-3;
+    cfg.max_subpatch_depth = 2;
+    cfg.min_dense_points_per_subpatch = 12;
+    cfg.max_reduced_points_per_patch = 6;
     cfg.warm_start_match_radius = 6.0e-3;
     cfg.temporal_load_regularization = 1.0e-6;
     cfg.temporal_reference_blend = 0.05;
     cfg.max_wrench_error = 0.08;
     cfg.max_cop_error = 2.5e-3;
-    cfg.max_gap_error = 0.25;
+    cfg.max_gap_error = 0.05;
     cfg.predictive_gap = true;
     return cfg;
 }

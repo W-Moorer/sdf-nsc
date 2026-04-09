@@ -18,6 +18,7 @@ struct SupportWrenchPoint {
     chrono::ChVector3d t2_W;
     double mu = 0.0;
     double initial_load = 0.0;
+    chrono::ChVector3d initial_force_W;
 };
 
 struct ReferenceWrench {
