@@ -105,6 +105,8 @@ struct StepMetrics {
     std::size_t reduced_contacts = 0;
     double max_subpatch_plane_error = 0.0;
     double max_subpatch_gap_error = 0.0;
+    double max_subpatch_force_residual = 0.0;
+    double max_subpatch_moment_residual = 0.0;
 };
 
 struct ScenarioSummary {
@@ -530,7 +532,8 @@ void WriteCsv(const std::string& path,
         out << "scenario,time,epsF,epsM,epsCoP,epsGap,pos_error,vel_error,ang_vel_error,linear_impulse_error,"
                "angular_impulse_error,energy_dense,energy_reduced,energy_drift_diff,temporal_hausdorff,"
                "temporal_mean_drift,support_churn,patch_count,subpatch_count,dense_contacts,reduced_contacts,"
-               "max_subpatch_plane_error,max_subpatch_gap_error\n";
+               "max_subpatch_plane_error,max_subpatch_gap_error,max_subpatch_force_residual,"
+               "max_subpatch_moment_residual\n";
     }
     for (const auto& step : steps) {
         out << scenario_name << ','
@@ -555,7 +558,9 @@ void WriteCsv(const std::string& path,
             << step.dense_contacts << ','
             << step.reduced_contacts << ','
             << step.max_subpatch_plane_error << ','
-            << step.max_subpatch_gap_error << '\n';
+            << step.max_subpatch_gap_error << ','
+            << step.max_subpatch_force_residual << ','
+            << step.max_subpatch_moment_residual << '\n';
     }
 }
 
@@ -614,6 +619,8 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
         step.reduced_contacts = reduced_sim.callback->last_contact_count;
         step.max_subpatch_plane_error = reduced_sim.callback->last_stats.max_subpatch_plane_error;
         step.max_subpatch_gap_error = reduced_sim.callback->last_stats.max_subpatch_gap_error;
+        step.max_subpatch_force_residual = reduced_sim.callback->last_stats.max_subpatch_force_residual;
+        step.max_subpatch_moment_residual = reduced_sim.callback->last_stats.max_subpatch_moment_residual;
         steps.push_back(step);
         previous_reduced_supports = reduced_sim.callback->last_reduced_contacts;
 

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 
+#include "platform/backend/spcc/LocalWrenchAllocator.h"
 #include "platform/backend/spcc/SubpatchRefiner.h"
 
 namespace platform {
@@ -24,6 +25,7 @@ struct ReducedSupportAggregate {
     double phi_eff = 0.0;
     double area_weight = 0.0;
     double support_weight = 0.0;
+    double allocated_load = 0.0;
     double coverage_radius = 0.0;
     std::size_t dense_members = 0;
 };
@@ -350,6 +352,7 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
         support.area_weight = sum_area;
         support.support_weight =
             (support.phi_eff < -1.0e-12) ? (sum_load / std::max(1.0e-12, -support.phi_eff)) : sum_area;
+        support.allocated_load = sum_load;
         support.coverage_radius = max_coverage_radius;
         support.dense_members = count;
         supports.push_back(support);
@@ -429,6 +432,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
 
     double max_subpatch_plane_error = 0.0;
     double max_subpatch_gap_error = 0.0;
+    double max_subpatch_force_residual = 0.0;
+    double max_subpatch_moment_residual = 0.0;
 
     out_contacts.reserve(dense_points.size());
     for (const auto& subpatch : subpatches) {
@@ -456,6 +461,36 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         auto supports = BuildReducedSupportsForSubpatch(dense_points, subpatch, previous_local_contacts,
                                                         cfg_.warm_start_match_radius, target_points);
 
+        if (!supports.empty()) {
+            const ReferenceWrench reference =
+                LocalWrenchAllocator::BuildDenseReference(dense_points, subpatch.members, subpatch.centroid_W);
+            std::vector<SupportWrenchPoint> support_points;
+            support_points.reserve(supports.size());
+            for (const auto& support : supports) {
+                SupportWrenchPoint point;
+                point.x_W = support.x_W;
+                point.n_W = support.n_W;
+                point.initial_load = std::max(0.0, support.allocated_load);
+                support_points.push_back(point);
+            }
+
+            WrenchAllocationResult allocation;
+            LocalWrenchAllocator::Allocate(support_points, reference, allocation);
+            max_subpatch_force_residual = std::max(max_subpatch_force_residual, allocation.force_residual);
+            max_subpatch_moment_residual = std::max(max_subpatch_moment_residual, allocation.moment_residual);
+
+            if (allocation.feasible && allocation.loads.size() == supports.size()) {
+                for (std::size_t i = 0; i < supports.size(); ++i) {
+                    supports[i].allocated_load = allocation.loads[i];
+                    if (supports[i].phi_eff < -1.0e-12) {
+                        supports[i].support_weight = allocation.loads[i] / std::max(1.0e-12, -supports[i].phi_eff);
+                    } else {
+                        supports[i].support_weight = supports[i].area_weight;
+                    }
+                }
+            }
+        }
+
         max_subpatch_gap_error = std::max(max_subpatch_gap_error,
                                           ComputeSubpatchGapError(subpatch, supports, master_state, sdf, cfg_));
 
@@ -475,6 +510,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.phi_eff = support.phi_eff;
             reduced.area_weight = support.area_weight;
             reduced.support_weight = support.support_weight;
+            reduced.allocated_load = support.allocated_load;
             reduced.mu = mu_default;
             out_contacts.push_back(reduced);
         }
@@ -498,6 +534,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     out_stats->bvh_leaf_samples_tested = cloud_stats.bvh.leaf_samples_tested;
     out_stats->max_subpatch_plane_error = max_subpatch_plane_error;
     out_stats->max_subpatch_gap_error = max_subpatch_gap_error;
+    out_stats->max_subpatch_force_residual = max_subpatch_force_residual;
+    out_stats->max_subpatch_moment_residual = max_subpatch_moment_residual;
 
     if (dense_points.empty() || out_contacts.empty()) {
         out_stats->epsilon_F = 0.0;

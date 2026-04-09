@@ -36,6 +36,7 @@ set(PLATFORM_BACKEND_SOURCES
     src/backend/chrono/spcc/DenseContactCloud.cpp
     src/backend/chrono/spcc/DenseSampleBVH.cpp
     src/backend/chrono/spcc/DenseSurfaceSampler.cpp
+    src/backend/chrono/spcc/LocalWrenchAllocator.cpp
     src/backend/chrono/spcc/SubpatchRefiner.cpp
     src/models/BaselineDropCase.cpp
     src/models/BaselineHeadOnSphereCase.cpp
@@ -307,6 +308,7 @@ if(BUILD_TESTING)
 
     add_executable(spcc_tests
         tests/spcc/CompressedContactPipeline_test.cpp
+        tests/spcc/LocalWrenchAllocator_test.cpp
     )
 
     if(SPCC_ENABLE_VDB)

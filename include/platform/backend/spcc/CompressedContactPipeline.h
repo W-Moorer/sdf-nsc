@@ -31,6 +31,7 @@ struct ReducedContactPoint {
     double phi_eff = 0.0;
     double area_weight = 0.0;
     double support_weight = 0.0;
+    double allocated_load = 0.0;
     double mu = 0.0;
 };
 
@@ -51,6 +52,8 @@ struct CompressionStats {
     double epsilon_gap = 0.0;
     double max_subpatch_plane_error = 0.0;
     double max_subpatch_gap_error = 0.0;
+    double max_subpatch_force_residual = 0.0;
+    double max_subpatch_moment_residual = 0.0;
 };
 
 class CompressedContactPipeline {

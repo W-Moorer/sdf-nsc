@@ -288,7 +288,8 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
     out << "scenario,description,total_samples,candidate_count,dense_count,reduced_count,compression_ratio,"
            "patch_count,subpatch_count,expected_patch_count,bvh_nodes_visited,bvh_nodes_pruned_obb,bvh_nodes_pruned_sdf,"
            "bvh_leaf_samples_tested,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,max_subpatch_plane_error,"
-           "max_subpatch_gap_error,dense_force_norm,reduced_force_norm,dense_moment_norm,reduced_moment_norm,pass\n";
+           "max_subpatch_gap_error,max_subpatch_force_residual,max_subpatch_moment_residual,"
+           "dense_force_norm,reduced_force_norm,dense_moment_norm,reduced_moment_norm,pass\n";
     for (const auto& result : results) {
         const double dense_count = static_cast<double>(result.report.stats.dense_count);
         const double reduced_count = static_cast<double>(result.report.stats.reduced_count);
@@ -313,6 +314,8 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
             << result.report.stats.epsilon_gap << ','
             << result.report.stats.max_subpatch_plane_error << ','
             << result.report.stats.max_subpatch_gap_error << ','
+            << result.report.stats.max_subpatch_force_residual << ','
+            << result.report.stats.max_subpatch_moment_residual << ','
             << result.report.dense_wrench.force_W.Length() << ','
             << result.report.reduced_wrench.force_W.Length() << ','
             << result.report.dense_wrench.moment_at_origin_W.Length() << ','
@@ -344,7 +347,9 @@ void PrintScenarioResult(const ScenarioResult& result) {
               << " epsCoP=" << result.report.stats.epsilon_CoP
               << " epsGap=" << result.report.stats.epsilon_gap
               << " plane=" << result.report.stats.max_subpatch_plane_error
-              << " sentGap=" << result.report.stats.max_subpatch_gap_error << '\n';
+              << " sentGap=" << result.report.stats.max_subpatch_gap_error
+              << " subF=" << result.report.stats.max_subpatch_force_residual
+              << " subM=" << result.report.stats.max_subpatch_moment_residual << '\n';
     std::cout << "  dense wrench    : |F|=" << result.report.dense_wrench.force_W.Length()
               << " |M0|=" << result.report.dense_wrench.moment_at_origin_W.Length()
               << " CoP=(" << result.report.dense_wrench.cop_W.x() << ", "

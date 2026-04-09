@@ -22,6 +22,9 @@ double ProxyLoad(const DenseValidationContact& point) {
 }
 
 double ProxyLoad(const ReducedContactPoint& point) {
+    if (point.allocated_load > 0.0) {
+        return point.allocated_load;
+    }
     return std::max(0.0, -point.phi_eff) * std::max(0.0, point.support_weight);
 }
 
