@@ -26,14 +26,14 @@ CAM_CASES = [
         "key": "sdf1",
         "label": "Cam SDF 1st",
         "path": ROOT / "data" / "outputs" / "cam_current_default_sdf1_dt0p01.csv",
-        "runtime_s": 241.3317,
+        "runtime_s": 14.9609,
         "color": "#0f766e",
     },
     {
         "key": "sdf2",
         "label": "Cam SDF 2nd",
         "path": ROOT / "data" / "outputs" / "cam_current_default_sdf2_dt0p01.csv",
-        "runtime_s": 217.6088,
+        "runtime_s": 16.0043,
         "color": "#b91c1c",
     },
 ]
@@ -81,6 +81,7 @@ CAM_DEFAULTS = [
     ("local_fit_max_shift_ratio", "1.0"),
     ("local_fit_blend", "1.0"),
     ("local_fit_reject_positive_phi", "2.5e-3"),
+    ("use_sample_bvh", "true"),
     ("curvature.enabled", "true"),
     ("curvature.tangential_only", "true"),
     ("curvature.alignment_cos_min", "0.99"),
@@ -441,14 +442,14 @@ def make_report():
   <section class="hero">
     <div class="panel">
       <div class="pill">Current Mainline State</div>
-      <h1 style="margin-top:10px;">Cam onset spikes are sharply reduced while gear remains exactly pinned.</h1>
+      <h1 style="margin-top:10px;">Cam onset spikes stay suppressed while BVH broad-phase restores SDF speed.</h1>
       <p class="muted" style="margin-top:10px;">
         This report summarizes the current default code path after promoting the cam-only
-        patch-local onset manifold gate into the mainline <code>sdf_2nd</code> path.
-        Gear results remain bitwise identical to the pinned benchmark. On cam, the new
-        default <code>sdf_2nd</code> result is the most accurate of the three on both
-        velocity RMSE and velocity peak error, although the current SDF runtimes are now
-        slower than mesh in this accuracy-oriented configuration.
+        patch-local onset manifold gate and enabling the sample-side BVH broad-phase on
+        the sliding-patch benchmarks. Gear results remain bitwise identical to the pinned
+        benchmark. On cam, the default <code>sdf_2nd</code> result is still the most
+        accurate of the three on both velocity RMSE and velocity peak error, and both SDF
+        modes are now faster than the native mesh baseline.
       </p>
     </div>
     <div class="panel">
@@ -512,7 +513,7 @@ def make_report():
   <section class="grid3">
     <div class="panel">
       <h2>Cam Runtime</h2>
-      <p class="muted" style="margin:6px 0 10px;">Current default cam settings are accuracy-oriented; both SDF modes are slower than mesh in this configuration.</p>
+      <p class="muted" style="margin:6px 0 10px;">BVH broad-phase recovers the runtime advantage while preserving the current cam trajectories exactly.</p>
       {cam_runtime_svg}
     </div>
     <div class="panel">
@@ -579,7 +580,7 @@ def make_report():
           <tr><td>2.</td><td>Cam <code>sdf_2nd</code> now includes a patch-local onset manifold gate that suppresses early-contact spikes.</td></tr>
           <tr><td>3.</td><td>Cam <code>sdf_2nd</code> is more accurate than both mesh and cam <code>sdf_1st</code> on velocity RMSE.</td></tr>
           <tr><td>4.</td><td>The main new gain is local peak suppression: current cam <code>sdf_2nd</code> peak error is <strong>{fmt(cam_rows[2]["metrics"]["vel_max_abs"])}</strong> versus <strong>{fmt(cam_rows[1]["metrics"]["vel_max_abs"])}</strong> for <code>sdf_1st</code> and <strong>{fmt(cam_rows[0]["metrics"]["vel_max_abs"])}</strong> for mesh.</td></tr>
-          <tr><td>5.</td><td>The tradeoff is runtime: this accuracy-oriented default is currently slower than mesh, so the next optimization target is to recover speed without losing onset suppression.</td></tr>
+          <tr><td>5.</td><td>The current default now preserves the onset-suppressed trajectories while running both SDF modes faster than mesh on the <code>dt=0.01</code> cam benchmark.</td></tr>
         </tbody>
       </table>
     </div>

@@ -28,6 +28,8 @@ std::vector<double> ParseSnapshotTimes(const std::string& csv) {
 
 int main(int argc, char* argv[]) {
     platform::models::CamCaseConfig config;
+    config.contact_regime.curvature.small_step_dt_threshold = 0.005;
+    config.contact_regime.curvature.small_step_max_hessian_frobenius = 70.0;
 
     // Basic CLI parsing
     for (int i = 1; i < argc; ++i) {

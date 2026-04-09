@@ -45,22 +45,22 @@
   <section class="hero">
     <div class="panel">
       <div class="pill">Current Mainline State</div>
-      <h1 style="margin-top:10px;">Cam onset spikes are sharply reduced while gear remains exactly pinned.</h1>
+      <h1 style="margin-top:10px;">Cam onset spikes stay suppressed while BVH broad-phase restores SDF speed.</h1>
       <p class="muted" style="margin-top:10px;">
         This report summarizes the current default code path after promoting the cam-only
-        patch-local onset manifold gate into the mainline <code>sdf_2nd</code> path.
-        Gear results remain bitwise identical to the pinned benchmark. On cam, the new
-        default <code>sdf_2nd</code> result is the most accurate of the three on both
-        velocity RMSE and velocity peak error, although the current SDF runtimes are now
-        slower than mesh in this accuracy-oriented configuration.
+        patch-local onset manifold gate and enabling the sample-side BVH broad-phase on
+        the sliding-patch benchmarks. Gear results remain bitwise identical to the pinned
+        benchmark. On cam, the default <code>sdf_2nd</code> result is still the most
+        accurate of the three on both velocity RMSE and velocity peak error, and both SDF
+        modes are now faster than the native mesh baseline.
       </p>
     </div>
     <div class="panel">
       <h2 style="font-size:22px;">Headline Numbers</h2>
       <table style="margin-top:10px;">
         <tr><td>Cam mesh runtime</td><td><strong>135.884 s</strong></td></tr>
-        <tr><td>Cam SDF 2nd runtime</td><td><strong>217.609 s</strong></td></tr>
-        <tr><td>Cam SDF 2nd runtime ratio vs mesh</td><td><strong>0.62x</strong></td></tr>
+        <tr><td>Cam SDF 2nd runtime</td><td><strong>16.004 s</strong></td></tr>
+        <tr><td>Cam SDF 2nd runtime ratio vs mesh</td><td><strong>8.49x</strong></td></tr>
         <tr><td>Cam SDF 2nd vel RMSE</td><td><strong>0.025668</strong></td></tr>
         <tr><td>Cam SDF 2nd gain vs mesh</td><td><strong>0.031951 m/s</strong></td></tr>
         <tr><td>Cam SDF 2nd gain vs SDF 1st</td><td><strong>0.007774 m/s</strong></td></tr>
@@ -82,13 +82,13 @@
       <div class="muted">Cam SDF 1st</div>
       <div class="big">0.033442</div>
       <div class="muted">Velocity RMSE</div>
-      <div class="foot" style="margin-top:8px;">Runtime 241.332 s | Peak 0.354625</div>
+      <div class="foot" style="margin-top:8px;">Runtime 14.961 s | Peak 0.354625</div>
     </div>
     <div class="card">
       <div class="muted">Cam SDF 2nd</div>
       <div class="big">0.025668</div>
       <div class="muted">Velocity RMSE</div>
-      <div class="foot" style="margin-top:8px;">Runtime 217.609 s | Peak 0.157168</div>
+      <div class="foot" style="margin-top:8px;">Runtime 16.004 s | Peak 0.157168</div>
     </div>
     <div class="card">
       <div class="muted">Gear SDF 2nd</div>
@@ -116,8 +116,8 @@
   <section class="grid3">
     <div class="panel">
       <h2>Cam Runtime</h2>
-      <p class="muted" style="margin:6px 0 10px;">Current default cam settings are accuracy-oriented; both SDF modes are slower than mesh in this configuration.</p>
-      <svg viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="100%" height="100%" fill="#fffdfa"/><line x1="52" y1="18.00" x2="502" y2="18.00" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="22.00" text-anchor="end" font-size="12" fill="#6b7280">270.29</text><line x1="52" y1="64.80" x2="502" y2="64.80" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="68.80" text-anchor="end" font-size="12" fill="#6b7280">216.23</text><line x1="52" y1="111.60" x2="502" y2="111.60" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="115.60" text-anchor="end" font-size="12" fill="#6b7280">162.17</text><line x1="52" y1="158.40" x2="502" y2="158.40" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="162.40" text-anchor="end" font-size="12" fill="#6b7280">108.12</text><line x1="52" y1="205.20" x2="502" y2="205.20" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="209.20" text-anchor="end" font-size="12" fill="#6b7280">54.06</text><line x1="52" y1="252.00" x2="502" y2="252.00" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="256.00" text-anchor="end" font-size="12" fill="#6b7280">0.00</text><rect x="70.00" y="134.36" width="126.00" height="117.64" rx="6" fill="#1d4ed8"/><text x="133.00" y="128.36" text-anchor="middle" font-size="12" fill="#374151">135.884</text><text x="133.00" y="270" text-anchor="middle" font-size="12" fill="#6b7280">Cam Mesh</text><rect x="214.00" y="43.07" width="126.00" height="208.93" rx="6" fill="#0f766e"/><text x="277.00" y="37.07" text-anchor="middle" font-size="12" fill="#374151">241.332</text><text x="277.00" y="270" text-anchor="middle" font-size="12" fill="#6b7280">Cam SDF 1st</text><rect x="358.00" y="63.61" width="126.00" height="188.39" rx="6" fill="#b91c1c"/><text x="421.00" y="57.61" text-anchor="middle" font-size="12" fill="#374151">217.609</text><text x="421.00" y="270" text-anchor="middle" font-size="12" fill="#6b7280">Cam SDF 2nd</text><line x1="52" y1="252" x2="502" y2="252" stroke="#77624a" stroke-width="1.2"/><text x="18" y="135.00" text-anchor="middle" transform="rotate(-90 18 135.00)" font-size="13" fill="#4b5563">Runtime (s)</text></svg>
+      <p class="muted" style="margin:6px 0 10px;">BVH broad-phase recovers the runtime advantage while preserving the current cam trajectories exactly.</p>
+      <svg viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="100%" height="100%" fill="#fffdfa"/><line x1="52" y1="18.00" x2="502" y2="18.00" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="22.00" text-anchor="end" font-size="12" fill="#6b7280">152.19</text><line x1="52" y1="64.80" x2="502" y2="64.80" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="68.80" text-anchor="end" font-size="12" fill="#6b7280">121.75</text><line x1="52" y1="111.60" x2="502" y2="111.60" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="115.60" text-anchor="end" font-size="12" fill="#6b7280">91.31</text><line x1="52" y1="158.40" x2="502" y2="158.40" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="162.40" text-anchor="end" font-size="12" fill="#6b7280">60.88</text><line x1="52" y1="205.20" x2="502" y2="205.20" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="209.20" text-anchor="end" font-size="12" fill="#6b7280">30.44</text><line x1="52" y1="252.00" x2="502" y2="252.00" stroke="#e8e0d2" stroke-width="1"/><text x="44" y="256.00" text-anchor="end" font-size="12" fill="#6b7280">0.00</text><rect x="70.00" y="43.07" width="126.00" height="208.93" rx="6" fill="#1d4ed8"/><text x="133.00" y="37.07" text-anchor="middle" font-size="12" fill="#374151">135.884</text><text x="133.00" y="270" text-anchor="middle" font-size="12" fill="#6b7280">Cam Mesh</text><rect x="214.00" y="229.00" width="126.00" height="23.00" rx="6" fill="#0f766e"/><text x="277.00" y="223.00" text-anchor="middle" font-size="12" fill="#374151">14.961</text><text x="277.00" y="270" text-anchor="middle" font-size="12" fill="#6b7280">Cam SDF 1st</text><rect x="358.00" y="227.39" width="126.00" height="24.61" rx="6" fill="#b91c1c"/><text x="421.00" y="221.39" text-anchor="middle" font-size="12" fill="#374151">16.004</text><text x="421.00" y="270" text-anchor="middle" font-size="12" fill="#6b7280">Cam SDF 2nd</text><line x1="52" y1="252" x2="502" y2="252" stroke="#77624a" stroke-width="1.2"/><text x="18" y="135.00" text-anchor="middle" transform="rotate(-90 18 135.00)" font-size="13" fill="#4b5563">Runtime (s)</text></svg>
     </div>
     <div class="panel">
       <h2>Cam Velocity RMSE</h2>
@@ -146,7 +146,7 @@
           <tr><th>Case</th><th>CSV</th><th>Runtime (s)</th><th>Pos RMSE</th><th>Vel RMSE</th><th>Vel MAE</th><th>Vel Max Abs</th></tr>
         </thead>
         <tbody>
-          <tr><td>Cam Mesh</td><td><code>data/outputs/cam_reverify_mesh__dt0p01.csv</code></td><td>135.884</td><td>0.002729</td><td>0.057619</td><td>0.030374</td><td>0.703506</td></tr><tr><td>Cam SDF 1st</td><td><code>data/outputs/cam_current_default_sdf1_dt0p01.csv</code></td><td>241.332</td><td>0.000977</td><td>0.033442</td><td>0.018745</td><td>0.354625</td></tr><tr><td>Cam SDF 2nd</td><td><code>data/outputs/cam_current_default_sdf2_dt0p01.csv</code></td><td>217.609</td><td>0.000951</td><td>0.025668</td><td>0.017427</td><td>0.157168</td></tr>
+          <tr><td>Cam Mesh</td><td><code>data/outputs/cam_reverify_mesh__dt0p01.csv</code></td><td>135.884</td><td>0.002729</td><td>0.057619</td><td>0.030374</td><td>0.703506</td></tr><tr><td>Cam SDF 1st</td><td><code>data/outputs/cam_current_default_sdf1_dt0p01.csv</code></td><td>14.961</td><td>0.000977</td><td>0.033442</td><td>0.018745</td><td>0.354625</td></tr><tr><td>Cam SDF 2nd</td><td><code>data/outputs/cam_current_default_sdf2_dt0p01.csv</code></td><td>16.004</td><td>0.000951</td><td>0.025668</td><td>0.017427</td><td>0.157168</td></tr>
         </tbody>
       </table>
     </div>
@@ -169,7 +169,7 @@
       <p class="muted" style="margin:6px 0 10px;">These are the effective mainline defaults behind the current stable cam result.</p>
       <table>
         <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
-        <tbody><tr><td><code>voxel_size</code></td><td>4e-4</td></tr><tr><td><code>half_band_voxels</code></td><td>12</td></tr><tr><td><code>surface_res</code></td><td>1e-3</td></tr><tr><td><code>max_samples</code></td><td>60000</td></tr><tr><td><code>full_scan_period</code></td><td>1</td></tr><tr><td><code>local_scan_radius</code></td><td>1e-2</td></tr><tr><td><code>cluster_radius</code></td><td>2.5e-3</td></tr><tr><td><code>cluster_angle_deg</code></td><td>25</td></tr><tr><td><code>separating_cutoff</code></td><td>1e-3</td></tr><tr><td><code>max_active_keep</code></td><td>8</td></tr><tr><td><code>avg_point</code></td><td>true</td></tr><tr><td><code>persistent_match_radius</code></td><td>6e-3</td></tr><tr><td><code>persistent_normal_cos_min</code></td><td>0.92</td></tr><tr><td><code>persistent_blend_alpha</code></td><td>0.60</td></tr><tr><td><code>persistent_path_samples</code></td><td>1</td></tr><tr><td><code>coverage_spacing_radius</code></td><td>4e-3</td></tr><tr><td><code>dynamics_substeps</code></td><td>4</td></tr><tr><td><code>local_fit_onset_steps</code></td><td>1</td></tr><tr><td><code>local_fit_min_cluster_size</code></td><td>2</td></tr><tr><td><code>local_fit_path_samples</code></td><td>1</td></tr><tr><td><code>local_fit_max_shift_ratio</code></td><td>1.0</td></tr><tr><td><code>local_fit_blend</code></td><td>1.0</td></tr><tr><td><code>local_fit_reject_positive_phi</code></td><td>2.5e-3</td></tr><tr><td><code>curvature.enabled</code></td><td>true</td></tr><tr><td><code>curvature.tangential_only</code></td><td>true</td></tr><tr><td><code>curvature.alignment_cos_min</code></td><td>0.99</td></tr><tr><td><code>curvature.max_hessian_frobenius</code></td><td>120</td></tr><tr><td><code>curvature.max_abs</code></td><td>6e-4</td></tr><tr><td><code>curvature.max_ratio</code></td><td>0.20</td></tr><tr><td><code>curvature.gap_floor</code></td><td>4e-3</td></tr></tbody>
+        <tbody><tr><td><code>voxel_size</code></td><td>4e-4</td></tr><tr><td><code>half_band_voxels</code></td><td>12</td></tr><tr><td><code>surface_res</code></td><td>1e-3</td></tr><tr><td><code>max_samples</code></td><td>60000</td></tr><tr><td><code>full_scan_period</code></td><td>1</td></tr><tr><td><code>local_scan_radius</code></td><td>1e-2</td></tr><tr><td><code>cluster_radius</code></td><td>2.5e-3</td></tr><tr><td><code>cluster_angle_deg</code></td><td>25</td></tr><tr><td><code>separating_cutoff</code></td><td>1e-3</td></tr><tr><td><code>max_active_keep</code></td><td>8</td></tr><tr><td><code>avg_point</code></td><td>true</td></tr><tr><td><code>persistent_match_radius</code></td><td>6e-3</td></tr><tr><td><code>persistent_normal_cos_min</code></td><td>0.92</td></tr><tr><td><code>persistent_blend_alpha</code></td><td>0.60</td></tr><tr><td><code>persistent_path_samples</code></td><td>1</td></tr><tr><td><code>coverage_spacing_radius</code></td><td>4e-3</td></tr><tr><td><code>dynamics_substeps</code></td><td>4</td></tr><tr><td><code>local_fit_onset_steps</code></td><td>1</td></tr><tr><td><code>local_fit_min_cluster_size</code></td><td>2</td></tr><tr><td><code>local_fit_path_samples</code></td><td>1</td></tr><tr><td><code>local_fit_max_shift_ratio</code></td><td>1.0</td></tr><tr><td><code>local_fit_blend</code></td><td>1.0</td></tr><tr><td><code>local_fit_reject_positive_phi</code></td><td>2.5e-3</td></tr><tr><td><code>use_sample_bvh</code></td><td>true</td></tr><tr><td><code>curvature.enabled</code></td><td>true</td></tr><tr><td><code>curvature.tangential_only</code></td><td>true</td></tr><tr><td><code>curvature.alignment_cos_min</code></td><td>0.99</td></tr><tr><td><code>curvature.max_hessian_frobenius</code></td><td>120</td></tr><tr><td><code>curvature.max_abs</code></td><td>6e-4</td></tr><tr><td><code>curvature.max_ratio</code></td><td>0.20</td></tr><tr><td><code>curvature.gap_floor</code></td><td>4e-3</td></tr></tbody>
       </table>
     </div>
     <div class="panel">
@@ -183,7 +183,7 @@
           <tr><td>2.</td><td>Cam <code>sdf_2nd</code> now includes a patch-local onset manifold gate that suppresses early-contact spikes.</td></tr>
           <tr><td>3.</td><td>Cam <code>sdf_2nd</code> is more accurate than both mesh and cam <code>sdf_1st</code> on velocity RMSE.</td></tr>
           <tr><td>4.</td><td>The main new gain is local peak suppression: current cam <code>sdf_2nd</code> peak error is <strong>0.157168</strong> versus <strong>0.354625</strong> for <code>sdf_1st</code> and <strong>0.703506</strong> for mesh.</td></tr>
-          <tr><td>5.</td><td>The tradeoff is runtime: this accuracy-oriented default is currently slower than mesh, so the next optimization target is to recover speed without losing onset suppression.</td></tr>
+          <tr><td>5.</td><td>The current default now preserves the onset-suppressed trajectories while running both SDF modes faster than mesh on the <code>dt=0.01</code> cam benchmark.</td></tr>
         </tbody>
       </table>
     </div>

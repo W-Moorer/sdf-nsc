@@ -33,7 +33,10 @@ set(PLATFORM_BACKEND_SOURCES
     src/backend/chrono/ChronoRigidSystemNSC.cpp
     src/backend/chrono/spcc/SPCCProblem.cpp
     src/backend/chrono/spcc/ContactActivation.cpp
+    src/backend/chrono/spcc/ContactManifold.cpp
     src/models/BaselineDropCase.cpp
+    src/models/BaselineHeadOnSphereCase.cpp
+    src/models/BaselineRevoluteClearanceCase.cpp
     src/models/BaselineCamCase.cpp
     src/models/BaselineSimpleGearCase.cpp
     src/validation/ReferenceCurve.cpp
@@ -43,6 +46,7 @@ set(PLATFORM_BACKEND_SOURCES
 if(SPCC_ENABLE_VDB)
     list(APPEND PLATFORM_BACKEND_SOURCES
         src/backend/chrono/spcc/VDBSDFField.cpp
+        src/backend/chrono/spcc/SampleBVH.cpp
     )
 endif()
 
@@ -209,6 +213,18 @@ add_executable(baseline_drop_nsc apps/baseline_drop_nsc/main.cpp)
 target_link_libraries(baseline_drop_nsc PRIVATE platform_backend Chrono::Chrono_core)
 if(SPCC_ENABLE_VDB)
     target_link_options(baseline_drop_nsc PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
+endif()
+
+add_executable(baseline_headon_sphere_nsc apps/baseline_headon_sphere_nsc/main.cpp)
+target_link_libraries(baseline_headon_sphere_nsc PRIVATE platform_backend Chrono::Chrono_core)
+if(SPCC_ENABLE_VDB)
+    target_link_options(baseline_headon_sphere_nsc PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
+endif()
+
+add_executable(baseline_rev_joint_clearance_nsc apps/baseline_rev_joint_clearance_nsc/main.cpp)
+target_link_libraries(baseline_rev_joint_clearance_nsc PRIVATE platform_backend Chrono::Chrono_core)
+if(SPCC_ENABLE_VDB)
+    target_link_options(baseline_rev_joint_clearance_nsc PRIVATE "-Wl,-rpath,${SPCC_VDB_RUNTIME_DIR}")
 endif()
 
 # Cam case executable

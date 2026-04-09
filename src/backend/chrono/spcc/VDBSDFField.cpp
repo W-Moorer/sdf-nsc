@@ -76,6 +76,9 @@ struct VDBSDFField::Impl {
     openvdb::FloatGrid::Ptr open_grid;
     nanovdb::GridHandle<nanovdb::HostBuffer> nano_handle;
     const nanovdb::NanoGrid<float>* nano_grid = nullptr;
+    chrono::ChVector3d bounding_center_M{0.0, 0.0, 0.0};
+    double bounding_radius = 0.0;
+    bool has_bounding_sphere = false;
     bool direct_phi_hessian = false;
     bool ready = false;
     std::string last_error;
@@ -97,6 +100,9 @@ bool VDBSDFField::BuildFromTriangleMesh(const chrono::ChTriangleMeshConnected& m
     impl_->open_grid.reset();
     impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
     impl_->nano_grid = nullptr;
+    impl_->bounding_center_M = chrono::ChVector3d(0.0, 0.0, 0.0);
+    impl_->bounding_radius = 0.0;
+    impl_->has_bounding_sphere = false;
     impl_->direct_phi_hessian = options.direct_phi_hessian;
     impl_->ready = false;
 
@@ -119,16 +125,36 @@ bool VDBSDFField::BuildFromTriangleMesh(const chrono::ChTriangleMeshConnected& m
     try {
         std::vector<openvdb::Vec3s> points;
         points.reserve(vertices.size());
+        chrono::ChVector3d bbox_min(std::numeric_limits<double>::infinity(),
+                                    std::numeric_limits<double>::infinity(),
+                                    std::numeric_limits<double>::infinity());
+        chrono::ChVector3d bbox_max(-std::numeric_limits<double>::infinity(),
+                                    -std::numeric_limits<double>::infinity(),
+                                    -std::numeric_limits<double>::infinity());
         for (const auto& v : vertices) {
             if (!IsFiniteVec(v)) {
                 impl_->last_error = "VDBSDFField::BuildFromTriangleMesh mesh has non-finite vertex";
                 return false;
             }
+            bbox_min.x() = std::min(bbox_min.x(), v.x());
+            bbox_min.y() = std::min(bbox_min.y(), v.y());
+            bbox_min.z() = std::min(bbox_min.z(), v.z());
+            bbox_max.x() = std::max(bbox_max.x(), v.x());
+            bbox_max.y() = std::max(bbox_max.y(), v.y());
+            bbox_max.z() = std::max(bbox_max.z(), v.z());
             points.emplace_back(
                 ToFiniteFloat(v.x(), "VDBSDFField::BuildFromTriangleMesh vertex x"),
                 ToFiniteFloat(v.y(), "VDBSDFField::BuildFromTriangleMesh vertex y"),
                 ToFiniteFloat(v.z(), "VDBSDFField::BuildFromTriangleMesh vertex z"));
         }
+
+        impl_->bounding_center_M = 0.5 * (bbox_min + bbox_max);
+        impl_->bounding_radius = 0.0;
+        for (const auto& v : vertices) {
+            impl_->bounding_radius =
+                std::max(impl_->bounding_radius, (v - impl_->bounding_center_M).Length());
+        }
+        impl_->has_bounding_sphere = std::isfinite(impl_->bounding_radius);
 
         std::vector<openvdb::Vec3I> tri_faces;
         tri_faces.reserve(triangles.size());
@@ -193,6 +219,9 @@ bool VDBSDFField::LoadFromVDBFile(const std::string& vdb_path,
     impl_->open_grid.reset();
     impl_->nano_handle = nanovdb::GridHandle<nanovdb::HostBuffer>();
     impl_->nano_grid = nullptr;
+    impl_->bounding_center_M = chrono::ChVector3d(0.0, 0.0, 0.0);
+    impl_->bounding_radius = 0.0;
+    impl_->has_bounding_sphere = false;
 
     if (vdb_path.empty()) {
         impl_->last_error = "VDBSDFField::LoadFromVDBFile empty vdb_path";
@@ -278,6 +307,34 @@ bool VDBSDFField::QueryPhiGradM(const chrono::ChVector3d& x_M,
     if (!IsFiniteScalar(phi) || !IsFiniteVec(grad_M)) {
         return false;
     }
+    return true;
+}
+
+bool VDBSDFField::QueryPhiM(const chrono::ChVector3d& x_M, double& phi) const {
+    if (!impl_->ready || !impl_->nano_grid || !IsFiniteVec(x_M)) {
+        return false;
+    }
+
+    const nanovdb::Vec3d x_world(x_M.x(), x_M.y(), x_M.z());
+    const auto x_index = impl_->nano_grid->worldToIndex(x_world);
+
+    const auto accessor = impl_->nano_grid->getAccessor();
+    const auto sampler = nanovdb::math::createSampler<1>(accessor);
+    const float phi_value = sampler(x_index);
+
+    phi = static_cast<double>(phi_value);
+    return IsFiniteScalar(phi);
+}
+
+bool VDBSDFField::GetBoundingSphereM(chrono::ChVector3d& center_M, double& radius) const {
+    if (!impl_->has_bounding_sphere || !std::isfinite(impl_->bounding_radius)) {
+        center_M = chrono::ChVector3d(0.0, 0.0, 0.0);
+        radius = 0.0;
+        return false;
+    }
+
+    center_M = impl_->bounding_center_M;
+    radius = impl_->bounding_radius;
     return true;
 }
 

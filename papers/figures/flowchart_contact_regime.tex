@@ -2,49 +2,110 @@
 \usepackage{amsmath}
 \usepackage{fontspec}
 \setmainfont{Times New Roman}
-\usetikzlibrary{arrows.meta, positioning, shapes.geometric, calc}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, calc, backgrounds, fit}
+
+\definecolor{p1bg}{HTML}{DCE5F4}
+\definecolor{p1fg}{HTML}{B2C8E8}
+\definecolor{p2bg}{HTML}{E1EED5}
+\definecolor{p2fg}{HTML}{B8D2A0}
+\definecolor{p3bg}{HTML}{FAECD2}
+\definecolor{p3fg}{HTML}{F5D397}
+\definecolor{arrgray}{HTML}{B4B9C1}
+\definecolor{darktext}{HTML}{1A1A1A}
 
 \begin{document}
 \begin{tikzpicture}[
     >=Stealth,
-    node distance=10mm and 8mm,
-    font=\small,
-    io/.style={trapezium, trapezium left angle=70, trapezium right angle=110, draw=black!70, thick, fill=black!6, align=center, minimum width=30mm, minimum height=8mm},
-    decision/.style={diamond, aspect=2.0, draw=black!70, thick, fill=orange!12, align=center, inner sep=1pt, minimum width=32mm, minimum height=10mm},
-    proc/.style={rectangle, rounded corners=1.5pt, draw=black!70, thick, fill=blue!8, align=center, minimum width=34mm, minimum height=9mm},
-    proc2/.style={rectangle, rounded corners=1.5pt, draw=black!70, thick, fill=green!10, align=center, minimum width=36mm, minimum height=9mm},
-    outnode/.style={rectangle, rounded corners=1.5pt, draw=black!70, thick, fill=black!5, align=center, minimum width=30mm, minimum height=8mm},
-    line/.style={->, thick}
+    font=\large\color{darktext},
+    block/.style={rectangle, fill=#1, align=center, minimum height=15mm, inner sep=3mm},
+    p1block/.style={block=p1fg, minimum width=6.2cm},
+    p2block/.style={block=p2fg, minimum width=5.6cm},
+    p3block/.style={block=p3fg, minimum width=5.4cm},
+    optline/.style={block=p1bg, draw=p1fg, thick, dashed, minimum width=6.2cm},
+    line/.style={->, thick, draw=black!40},
+    fatarrow/.style={-{Stealth[length=8mm, width=12mm]}, line width=5mm, draw=arrgray},
+    paneltpl/.style={font=\LARGE, align=center, anchor=north, text=black}
 ]
 
-\node[io] (input) {SDF samples\\and body state};
-\node[decision, below=8mm of input] (regime) {Contact\\type?};
+% =====================
+% PANEL 1 BLOCKS
+% =====================
+\begin{scope}[local bounding box=P1_box]
+    \node[p1block] (p1_1) at (0, 0) {SDF samples\\and body state};
+    \node[optline, below=6mm of p1_1] (p1_2) {Optional sample\\OBB/BVH broad-phase};
+    \node[p1block, below=6mm of p1_2] (p1_3) {Candidate\\contact screening};
+\end{scope}
 
-\node[proc, below left=16mm and 18mm of regime] (slide1) {Persistent manifold\\matching};
-\node[proc, below=of slide1] (slide2) {Representative\\query + local fit};
-\node[proc, below=of slide2] (slide3) {Onset-aware\\candidate filtering};
-\node[proc2, below=of slide3] (slide4) {Curvature feedforward\\for \texttt{SdfSecondOrder}};
+\draw[line] (p1_1) -- (p1_2);
+\draw[line] (p1_2) -- (p1_3);
 
-\node[proc, below right=16mm and 18mm of regime] (disc1) {Patch clustering\\and de-duplication};
-\node[proc, below=of disc1] (disc2) {Average normals\\keep dominant geometry};
-\node[proc2, below=of disc2] (disc3) {Local curvature feedforward\\on retained patch};
+% =====================
+% PANEL 2 BLOCKS
+% =====================
+\begin{scope}[local bounding box=P2_box]
+    % Left Branch (SlidingPatch)
+    \node[p2block, right=14mm of P1_box.east |- p1_1, yshift=-4mm] (p2_a1) {Persistent manifold\\+ representative query};
+    \node[p2block, below=5mm of p2_a1] (p2_a2) {Onset-aware filtering\\+ local fit};
+    \node[p2block, below=5mm of p2_a2] (p2_a3) {Curvature feedforward\\for \texttt{SdfSecondOrder}};
 
-\coordinate (midpoint) at ($(slide4)!0.5!(disc3)$);
-\node[outnode, below=14mm of midpoint] (output) {Effective contact gaps\\sent to NSC/LCP};
+    % Right Branch (CompactDiscrete)
+    \node[p2block, right=8mm of p2_a1] (p2_b1) {Patch clustering\\+ de-duplication};
+    \node[p2block, below=5mm of p2_b1] (p2_b2) {Average normals\\+ dominant geometry};
+    \node[p2block, below=5mm of p2_b2] (p2_b3) {Local curvature\\feedforward};
 
-\draw[line] (input) -- (regime);
-\draw[line] (regime) -- node[above left=-1pt and 1pt] {\texttt{SlidingPatch}} (slide1);
-\draw[line] (regime) -- node[above right=-1pt and 1pt] {\texttt{CompactDiscrete}} (disc1);
+    % Sub-branch Titles
+    \node[font=\Large\itshape, anchor=south, text=black!80, above=1mm of p2_a1] (lbl_a) {SlidingPatch};
+    \node[font=\Large\itshape, anchor=south, text=black!80, above=1mm of p2_b1] (lbl_b) {CompactDiscrete};
+\end{scope}
 
-\draw[line] (slide1) -- (slide2);
-\draw[line] (slide2) -- (slide3);
-\draw[line] (slide3) -- (slide4);
-\draw[line] (disc1) -- (disc2);
-\draw[line] (disc2) -- (disc3);
+\draw[line, draw=p2fg!80!black] (p2_a1) -- (p2_a2);
+\draw[line, draw=p2fg!80!black] (p2_a2) -- (p2_a3);
+\draw[line, draw=p2fg!80!black] (p2_b1) -- (p2_b2);
+\draw[line, draw=p2fg!80!black] (p2_b2) -- (p2_b3);
 
-\draw[line] (slide4) |- (output);
-\draw[line] (disc3) |- (output);
+% =====================
+% PANEL 3 BLOCKS
+% =====================
+\begin{scope}[local bounding box=P3_box]
+    \node[p3block, right=14mm of P2_box.east |- p2_b1, yshift=-8mm] (p3_1) {Effective contact gaps};
+    \node[p3block, below=6mm of p3_1] (p3_2) {Injection to NSC/LCP\\solve chain};
+\end{scope}
 
-\node[below=2mm of output, align=center, font=\footnotesize] (note) {Both branches preserve the underlying NSC/LCP solve chain\\and differ only in local contact representation and curvature injection.};
+\draw[line, draw=p3fg!80!black] (p3_1) -- (p3_2);
+
+% =====================
+% BACKGROUND PANELS
+% =====================
+% Fixed height anchors
+\coordinate (TOP) at (0, 3.2);
+\coordinate (BOT) at (0, -5.6);
+
+\begin{scope}[on background layer]
+    % Panel 1 Background
+    \coordinate (P1_W) at ($(P1_box.west) + (-5mm, 0)$);
+    \coordinate (P1_E) at ($(P1_box.east) + (5mm, 0)$);
+    \draw[draw=p1fg!90!black, thick, fill=p1bg] (P1_W |- BOT) rectangle (P1_E |- TOP) coordinate[midway] (P1_center);
+    \node[paneltpl, yshift=-3mm] at (P1_center |- TOP) {Candidate\\preprocessing};
+    
+    % Panel 2 Background
+    \coordinate (P2_W) at ($(P2_box.west) + (-5mm, 0)$);
+    \coordinate (P2_E) at ($(P2_box.east) + (5mm, 0)$);
+    \draw[draw=p2fg!90!black, thick, fill=p2bg] (P2_W |- BOT) rectangle (P2_E |- TOP) coordinate[midway] (P2_center);
+    \node[paneltpl, yshift=-6mm] at (P2_center |- TOP) {Regime-aware manifold construction};
+    
+    % Panel 3 Background
+    \coordinate (P3_W) at ($(P3_box.west) + (-5mm, 0)$);
+    \coordinate (P3_E) at ($(P3_box.east) + (5mm, 0)$);
+    \draw[draw=p3fg!90!black, thick, fill=p3bg] (P3_W |- BOT) rectangle (P3_E |- TOP) coordinate[midway] (P3_center);
+    \node[paneltpl, yshift=-3mm] at (P3_center |- TOP) {Constraint\\injection};
+\end{scope}
+
+% =====================
+% INTER-PANEL ARROWS 
+% =====================
+\draw[fatarrow] ($(P1_E |- p1_2) + (-6mm, 0)$) -- ($(P2_W |- p1_2) + (6mm, 0)$);
+
+\draw[fatarrow] ($(P2_E |- p3_1) + (-6mm, 0)$) -- ($(P3_W |- p3_1) + (6mm, 0)$);
+
 \end{tikzpicture}
 \end{document}

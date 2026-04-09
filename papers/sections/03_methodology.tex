@@ -63,12 +63,12 @@
 
 这一分流的核心思想在于：高阶曲率项本身并不保证对所有接触都产生正收益，它只有在与接触类型相匹配的局部流形表示中才能发挥稳定作用。对光滑连续接触而言，局部流形的持续追踪是二阶前馈获得净增益的前提；而对非光滑或分支切换显著的接触而言，更保守的紧凑离散表示反而有助于抑制由高阶几何噪声引起的非物理脉冲。
 
-图 \ref{fig:contact_regime_flow} 进一步总结了本文在运行时对两类接触 regime 的处理路径：系统首先根据局部接触的滑移连续性与主导几何特征选择 \texttt{SlidingPatch} 或 \texttt{CompactDiscrete}，随后分别执行持续流形追踪或紧凑离散 patch 约化，最后再将修正后的有效间隙统一写回 NSC/LCP 主方程。
+图 \ref{fig:contact_regime_flow} 进一步总结了本文在运行时的三阶段处理路径：系统首先执行候选样本预处理，并可在样本侧启用 OBB/BVH 分层 broad-phase 以降低候选查询开销；随后在局部流形构造阶段根据接触的滑移连续性与主导几何特征选择 \texttt{SlidingPatch} 或 \texttt{CompactDiscrete}；最后将修正后的有效间隙统一写回 NSC/LCP 主方程。
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\columnwidth]{flowchart_contact_regime.pdf}
-    \caption{Contact-type-aware routing used in the proposed framework. Smooth continuous contacts are processed by \texttt{SlidingPatch}, while compact or singular contacts are processed by \texttt{CompactDiscrete}; both branches finally inject effective gaps into the same NSC/LCP solve chain.}
+    \caption{Contact-type-aware routing used in the proposed framework. The runtime pipeline is organized into candidate preprocessing, regime-aware manifold construction, and constraint injection. Candidate samples may first pass through an optional sample-side OBB/BVH broad-phase; smooth continuous contacts are then processed by \texttt{SlidingPatch}, while compact or singular contacts are processed by \texttt{CompactDiscrete}, and both branches finally inject effective gaps into the same NSC/LCP solve chain.}
     \label{fig:contact_regime_flow}
 \end{figure}
 

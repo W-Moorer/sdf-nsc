@@ -14,6 +14,8 @@ namespace platform {
 namespace backend {
 namespace spcc {
 
+class SampleBVH;
+
 // Minimal SDF query interface for ContactActivation.
 // Real SDF implementations can inherit from this interface.
 class SDFField {
@@ -25,6 +27,17 @@ class SDFField {
     virtual bool QueryPhiGradM(const chrono::ChVector3d& x_M,
                                double& phi,
                                chrono::ChVector3d& grad_M) const = 0;
+
+    virtual bool QueryPhiM(const chrono::ChVector3d& x_M, double& phi) const {
+        chrono::ChVector3d grad_M(0.0, 0.0, 0.0);
+        return QueryPhiGradM(x_M, phi, grad_M);
+    }
+
+    virtual bool GetBoundingSphereM(chrono::ChVector3d& center_M, double& radius) const {
+        center_M = chrono::ChVector3d(0.0, 0.0, 0.0);
+        radius = 0.0;
+        return false;
+    }
 
     // Output: phi, grad_M, and hessian_M
     virtual bool QueryPhiGradHessianM(const chrono::ChVector3d& x_M,
@@ -47,6 +60,10 @@ class ContactActivation {
         std::size_t local_fit_attempted = 0;
         std::size_t local_fit_applied = 0;
         std::size_t local_fit_rejected_positive_gap = 0;
+        std::size_t bvh_nodes_tested = 0;
+        std::size_t bvh_nodes_pruned = 0;
+        std::size_t bvh_leaf_nodes = 0;
+        std::size_t bvh_samples_marked = 0;
     };
 
     void SetEnvPrefix(const std::string& env_prefix);
@@ -65,6 +82,24 @@ class ContactActivation {
                         double step_size,
                         bool need_hessian,
                         std::vector<ActiveContactSample>& out_active);
+
+    void BuildActiveSet(const RigidBodyStateW& master_pred,
+                        const RigidBodyStateW& slave_pred,
+                        const SDFField& sdf,
+                        const std::vector<chrono::ChVector3d>& local_samples_S,
+                        const std::vector<chrono::ChVector3d>& world_samples_W,
+                        double mu_default,
+                        std::vector<ActiveContactSample>& out_active);
+
+    void BuildActiveSetWithBVH(const RigidBodyStateW& master_pred,
+                               const RigidBodyStateW& slave_pred,
+                               const SDFField& sdf,
+                               const std::vector<chrono::ChVector3d>& local_samples_S,
+                               const SampleBVH& sample_bvh,
+                               double mu_default,
+                               double step_size,
+                               bool need_hessian,
+                               std::vector<ActiveContactSample>& out_active);
 
     const Stats& GetStats() const { return stats_; }
 
@@ -102,10 +137,28 @@ class ContactActivation {
                                  int path_samples,
                                  ActiveContactSample& patch) const;
     void SelectSlidingCoveragePatches(std::vector<ActiveContactSample>& patches) const;
+    void ClearSampleState(std::size_t sample_index);
+    bool TryBuildCandidateFromSample(const RigidBodyStateW& master_pred,
+                                     const RigidBodyStateW& slave_pred,
+                                     const SDFField& sdf,
+                                     std::size_t sample_index,
+                                     const chrono::ChVector3d& xi_S,
+                                     const chrono::ChVector3d& x_W,
+                                     double mu_use,
+                                     ActiveContactSample& out_candidate);
+    void FinalizeCandidates(const RigidBodyStateW& master_pred,
+                            const RigidBodyStateW& slave_pred,
+                            const SDFField& sdf,
+                            double step_size,
+                            bool need_hessian,
+                            std::vector<ActiveContactSample>& candidates,
+                            std::vector<ActiveContactSample>& out_active);
+    double GetEffectiveMaxHessianFrobenius() const;
 
     std::string env_prefix_;
     ContactRegimeType regime_ = ContactRegimeType::CompactDiscrete;
     PatchGeometryMode patch_geometry_mode_ = PatchGeometryMode::DeepestPoint;
+    ContactManifoldKind manifold_kind_ = ContactManifoldKind::CompactPoint;
     double delta_on_ = 0.0;
     double delta_off_ = 0.0;
     int hold_steps_ = 0;
@@ -133,14 +186,22 @@ class ContactActivation {
     double onset_gate_current_phi_max_default_ = -1.0;
     int single_point_local_fit_path_samples_default_ = 0;
     double single_point_local_fit_backtrack_scale_default_ = 1.0;
+    bool use_sample_bvh_default_ = false;
+    int sample_bvh_leaf_size_default_ = 32;
+    double sample_bvh_margin_scale_default_ = 1.0;
+    bool sample_bvh_use_persistent_seeds_only_default_ = false;
+    int sample_bvh_warmup_steps_default_ = 0;
     bool curvature_gate_enabled_ = false;
     bool curvature_tangential_only_default_ = false;
     double normal_alignment_cos_min_default_ = -1.0;
     double max_hessian_frobenius_default_ = 0.0;
+    double small_step_dt_threshold_default_ = 0.0;
+    double small_step_max_hessian_frobenius_default_ = 0.0;
     double max_curvature_term_abs_default_ = 0.0;
     double max_curvature_term_ratio_default_ = 0.0;
     double curvature_gap_floor_default_ = 0.0;
     int curvature_ramp_steps_default_ = 0;
+    double current_step_size_ = 0.0;
 
     std::vector<uint8_t> prev_active_;
     std::vector<int> hold_counter_;

@@ -14,6 +14,13 @@ enum class PatchGeometryMode {
     RepresentativeQuery,
 };
 
+enum class ContactManifoldKind {
+    ImpactPair,
+    CompactPoint,
+    SlidingPatch,
+    ArcSliding,
+};
+
 struct SdfBuildTuning {
     double voxel_size = 5.0e-4;
     double half_band_width_voxels = 3.0;
@@ -56,6 +63,11 @@ struct ContactActivationTuning {
     double onset_gate_current_phi_max = -1.0;
     int single_point_local_fit_path_samples = 0;
     double single_point_local_fit_backtrack_scale = 1.0;
+    bool use_sample_bvh = false;
+    int sample_bvh_leaf_size = 32;
+    double sample_bvh_margin_scale = 1.0;
+    bool sample_bvh_use_persistent_seeds_only = false;
+    int sample_bvh_warmup_steps = 0;
 };
 
 struct CurvatureGateTuning {
@@ -63,10 +75,19 @@ struct CurvatureGateTuning {
     bool tangential_only = false;
     double normal_alignment_cos_min = -1.0;
     double max_hessian_frobenius = 0.0;
+    double small_step_dt_threshold = 0.0;
+    double small_step_max_hessian_frobenius = 0.0;
     double max_curvature_term_abs = 0.0;
     double max_curvature_term_ratio = 0.0;
     double gap_floor = 0.0;
     int ramp_steps = 0;
+};
+
+struct ManifoldQuadratureTuning {
+    ContactManifoldKind manifold_kind = ContactManifoldKind::CompactPoint;
+    int target_contacts = 1;
+    double span_scale = 1.0;
+    double min_half_span = 0.0;
 };
 
 struct ContactRegimeConfig {
@@ -74,6 +95,7 @@ struct ContactRegimeConfig {
     PatchGeometryMode patch_geometry_mode = PatchGeometryMode::DeepestPoint;
     ContactActivationTuning activation;
     CurvatureGateTuning curvature;
+    ManifoldQuadratureTuning quadrature;
 };
 
 inline SdfBuildTuning MakeCamSdfBuildDefaults() {
@@ -95,6 +117,8 @@ inline ContactRegimeConfig MakeCamSlidingPatchDefaults() {
     ContactRegimeConfig cfg;
     cfg.regime = ContactRegimeType::SlidingPatch;
     cfg.patch_geometry_mode = PatchGeometryMode::RepresentativeQuery;
+    cfg.quadrature.manifold_kind = ContactManifoldKind::SlidingPatch;
+    cfg.quadrature.target_contacts = 1;
     cfg.activation.delta_on = 4.0e-3;
     cfg.activation.delta_off = 5.0e-3;
     cfg.activation.hold_steps = 2;
@@ -122,6 +146,7 @@ inline ContactRegimeConfig MakeCamSlidingPatchDefaults() {
     cfg.activation.onset_gate_current_phi_max = -1.0;
     cfg.activation.single_point_local_fit_path_samples = 0;
     cfg.activation.single_point_local_fit_backtrack_scale = 1.0;
+    cfg.activation.use_sample_bvh = true;
     cfg.curvature.enabled = true;
     cfg.curvature.tangential_only = true;
     cfg.curvature.normal_alignment_cos_min = 0.99;
@@ -154,8 +179,49 @@ inline ContactRegimeConfig MakeEccentricRollerDefaults() {
     cfg.activation.local_scan_radius = 6.0e-3;
     cfg.activation.cluster_radius = 1.5e-3;
     cfg.activation.avg_point = false;
+    cfg.activation.use_sample_bvh = true;
+    cfg.activation.sample_bvh_use_persistent_seeds_only = true;
     cfg.activation.local_fit_onset_steps = 0;
     cfg.activation.onset_refine_steps = 0;
+    return cfg;
+}
+
+inline SdfBuildTuning MakeHeadOnSphereSdfBuildDefaults() {
+    SdfBuildTuning tuning;
+    tuning.voxel_size = 1.0e-3;
+    tuning.half_band_width_voxels = 8.0;
+    tuning.direct_phi_hessian = false;
+    return tuning;
+}
+
+inline SurfaceSampleTuning MakeHeadOnSphereSurfaceSampleDefaults() {
+    SurfaceSampleTuning tuning;
+    tuning.surface_res = 3.0e-3;
+    tuning.max_samples = 12000;
+    return tuning;
+}
+
+inline ContactRegimeConfig MakeHeadOnSphereDefaults() {
+    ContactRegimeConfig cfg;
+    cfg.regime = ContactRegimeType::CompactDiscrete;
+    cfg.patch_geometry_mode = PatchGeometryMode::DeepestPoint;
+    cfg.quadrature.manifold_kind = ContactManifoldKind::ImpactPair;
+    cfg.quadrature.target_contacts = 1;
+    cfg.activation.delta_on = 2.0e-3;
+    cfg.activation.delta_off = 3.0e-3;
+    cfg.activation.hold_steps = 0;
+    cfg.activation.max_active_keep = 1;
+    cfg.activation.full_scan_period = 1;
+    cfg.activation.local_scan_radius = 0.0;
+    cfg.activation.cluster_angle_deg = 20.0;
+    cfg.activation.separating_cutoff = 1.0e-5;
+    cfg.activation.cluster_radius = 0.0;
+    cfg.activation.avg_point = false;
+    cfg.activation.use_sample_bvh = false;
+    cfg.curvature.max_hessian_frobenius = 90.0;
+    cfg.curvature.max_curvature_term_abs = 3.0e-4;
+    cfg.curvature.max_curvature_term_ratio = 0.10;
+    cfg.curvature.gap_floor = 2.0e-3;
     return cfg;
 }
 
@@ -178,6 +244,8 @@ inline ContactRegimeConfig MakeGearCompactDefaults() {
     ContactRegimeConfig cfg;
     cfg.regime = ContactRegimeType::CompactDiscrete;
     cfg.patch_geometry_mode = PatchGeometryMode::DeepestPoint;
+    cfg.quadrature.manifold_kind = ContactManifoldKind::CompactPoint;
+    cfg.quadrature.target_contacts = 1;
     cfg.activation.delta_on = 1.0e-4;
     cfg.activation.delta_off = 5.0e-4;
     cfg.activation.hold_steps = 2;

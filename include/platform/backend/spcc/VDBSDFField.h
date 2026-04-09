@@ -40,6 +40,12 @@ class VDBSDFField final : public SDFField {
                        double& phi,
                        chrono::ChVector3d& grad_M) const override;
 
+    bool QueryPhiM(const chrono::ChVector3d& x_M,
+                   double& phi) const override;
+
+    bool GetBoundingSphereM(chrono::ChVector3d& center_M,
+                            double& radius) const override;
+
     bool QueryPhiGradHessianM(const chrono::ChVector3d& x_M,
                               double& phi,
                               chrono::ChVector3d& grad_M,

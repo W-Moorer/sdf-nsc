@@ -5,12 +5,14 @@
 #include <chrono/physics/ChSystemNSC.h>
 #include <chrono/physics/ChBodyEasy.h>
 #include <chrono/core/ChQuaternion.h>
+#include <string>
 #include <memory>
 #include <vector>
 
 #if defined(SPCC_ENABLE_VDB)
 #include "platform/backend/spcc/ContactActivation.h"
 #include "platform/backend/spcc/ContactTuning.h"
+#include "platform/backend/spcc/SampleBVH.h"
 #include "platform/backend/spcc/VDBSDFField.h"
 #endif
 
@@ -73,6 +75,36 @@ public:
         const platform::backend::spcc::ContactRegimeConfig& contact_regime
     );
 
+    void InitializeHeadOnSphereCase(
+        const std::string& sphere_a_obj, const std::string& sphere_b_obj,
+        double sphere_radius, double sphere_a_density, double sphere_b_density,
+        const double* sphere_a_pos, const double* sphere_b_pos,
+        const double* sphere_a_vel, const double* sphere_b_vel,
+        double friction, double restitution, double gravity_y,
+        int dynamics_substeps,
+        const std::string& env_prefix,
+        platform::common::ContactAlgorithm contact_algorithm,
+        const platform::backend::spcc::SdfBuildTuning& sdf_build_tuning,
+        const platform::backend::spcc::SurfaceSampleTuning& sample_tuning,
+        const platform::backend::spcc::ContactRegimeConfig& contact_regime);
+
+    void InitializeRevoluteClearanceCase(
+        const std::string& body1_obj, const std::string& body3_obj,
+        const double* body1_pos, const double* body3_pos, const double* body2_cm_offset,
+        double body3_mass, const double* body3_inertia_xx, const double* body3_inertia_xy,
+        double body2_mass, const double* body2_inertia_xx, const double* body2_inertia_xy,
+        double friction, double restitution, double gravity_y,
+        double contact_compliance, double contact_compliance_t, double contact_damping_f, double collision_envelope,
+        int dynamics_substeps, const std::string& env_prefix,
+        platform::common::ContactAlgorithm contact_algorithm,
+        const platform::backend::spcc::SdfBuildTuning& sdf_build_tuning,
+        const platform::backend::spcc::SurfaceSampleTuning& sample_tuning,
+        const platform::backend::spcc::ContactRegimeConfig& contact_regime,
+        bool use_lcp_manifold_quadrature,
+        int manifold_quadrature_contacts,
+        double manifold_quadrature_span_scale,
+        double manifold_quadrature_min_half_span);
+
     // Legacy initialize to satisfy IRigidSystem base if needed
     void Initialize() override;
 
@@ -83,6 +115,15 @@ public:
     // Direct accessors for demonstration printing (Drop Case)
     double GetDynamicSpherePosY() const;
     double GetDynamicSphereVelY() const;
+    double GetHeadOnSphereAPosX() const;
+    double GetHeadOnSphereAVelX() const;
+    double GetHeadOnSphereBPosX() const;
+    double GetHeadOnSphereBVelX() const;
+    chrono::ChVector3d GetClearanceBody2Pos() const;
+    chrono::ChVector3d GetClearanceBody2Vel() const;
+    chrono::ChVector3d GetClearanceBody3Pos() const;
+    chrono::ChVector3d GetClearanceBody3Vel() const;
+    chrono::ChVector3d GetClearanceBody3AngVel() const;
 
     // Direct accessors for Cam Case
     double GetFollowerPosY() const;
@@ -100,19 +141,28 @@ public:
 private:
     std::unique_ptr<chrono::ChSystemNSC> m_system;
     std::shared_ptr<chrono::ChBody> m_sphere;      // used in drop case
+    std::shared_ptr<chrono::ChBody> m_headon_a;    // used in head-on sphere case
+    std::shared_ptr<chrono::ChBody> m_headon_b;    // used in head-on sphere case
     std::shared_ptr<chrono::ChBody> m_cam_body;    // used in cam case
     std::shared_ptr<chrono::ChBody> m_follower;    // used in cam case
     std::shared_ptr<chrono::ChBody> m_gear1;       // used in simple gear case
     std::shared_ptr<chrono::ChBody> m_gear2;       // used in simple gear case
+    std::shared_ptr<chrono::ChBody> m_clearance_body1;
+    std::shared_ptr<chrono::ChBody> m_clearance_body2;
+    std::shared_ptr<chrono::ChBody> m_clearance_body3;
 
 #if defined(SPCC_ENABLE_VDB)
     std::unique_ptr<platform::backend::spcc::VDBSDFField> m_gear1_sdf;
+    std::shared_ptr<platform::backend::spcc::SampleBVH> m_sample_bvh;
     platform::backend::spcc::ContactActivation m_contact_activation;
     std::vector<chrono::ChVector3d> m_gear2_samples_S;
     std::vector<platform::backend::spcc::ActiveContactSample> m_active_contacts;
     double m_contact_mu_default = 0.0;
 #endif
     int m_dynamics_substeps = 1;
+    bool m_headon_manual_elastic_resolution = false;
+    double m_headon_sphere_radius = 0.0;
+    double m_headon_restitution = 1.0;
 };
 
 } // namespace backend

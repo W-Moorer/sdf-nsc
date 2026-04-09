@@ -67,9 +67,7 @@ int main(int argc, char* argv[]) {
     config.contact_regime.activation.delta_off = 1.0e-3;
     config.contact_regime.activation.hold_steps = 2;
     config.contact_regime.activation.max_active_keep = 1;
-    // This benchmark maintains a single persistent sliding manifold; a less frequent
-    // full refresh preserves identical trajectories while cutting redundant scans.
-    config.contact_regime.activation.full_scan_period = 16;
+    config.contact_regime.activation.full_scan_period = 1;
     config.contact_regime.activation.local_scan_radius = 6.0e-3;
     config.contact_regime.activation.cluster_angle_deg = 25.0;
     config.contact_regime.activation.separating_cutoff = 1.0e-4;
@@ -91,6 +89,9 @@ int main(int argc, char* argv[]) {
     config.contact_regime.activation.local_fit_reject_positive_phi = 2.5e-3;
     config.contact_regime.activation.single_point_local_fit_path_samples = 5;
     config.contact_regime.activation.single_point_local_fit_backtrack_scale = 1.0;
+    config.contact_regime.activation.use_sample_bvh = true;
+    config.contact_regime.activation.sample_bvh_leaf_size = 32;
+    config.contact_regime.activation.sample_bvh_margin_scale = 1.0;
     config.contact_regime.curvature.enabled = true;
     config.contact_regime.curvature.tangential_only = true;
     config.contact_regime.curvature.normal_alignment_cos_min = 0.99;

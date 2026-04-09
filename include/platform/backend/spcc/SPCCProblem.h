@@ -72,6 +72,10 @@ struct ActiveContactSample {
     std::size_t manifold_id = 0;
     bool manifold_matched = false;
     double patch_weight_sum = 1.0;
+    chrono::ChVector3d coverage_tangent_W;
+    chrono::ChVector3d coverage_edge0_W;
+    chrono::ChVector3d coverage_edge1_W;
+    double coverage_half_span = 0.0;
 };
 
 struct SPCCProblemInput {

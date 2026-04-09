@@ -1,56 +1,75 @@
-针对前文提出的二阶 Hessian 曲率前馈高阶算法，本文围绕一台高瞬态变化和含有局部不连续曲率面接触受力的验证用凸轮-从动顶杆（Cam-follower）系统实施了全面验证。验证基准线（Reference）为严格等价条件下的解析级原生表面网格结构计算结果（Native Mesh NSC）。
+针对前文提出的接触类型感知高阶 SDF 接触建模框架，本文首先围绕一台高瞬态变化、连续滑移接触占主导的工业凸轮-从动顶杆（Cam-follower）系统实施验证。该算例的误差统一相对于第三方参考曲线 \texttt{assets/cam/data/cam\_data.csv} 统计；Chrono 原生 \texttt{Native Mesh NSC}、\texttt{SdfFirstOrder} 与 \texttt{SdfSecondOrder} 则作为三条数值对照线，用于比较不同接触表示在同一动力学系统中的轨迹贴合能力。
 
 为了确保计算开销与性能评估的客观性，所有的仿真实验均部署在同一台高性能工作站上执行。实验平台的核心硬件配置为：\textbf{AMD Ryzen 9 5900X 12-Core 处理器}以及 \textbf{16 GB 内存}。软件环境运行于基于 Windows Subsystem for Linux (WSL2) 虚拟化架构的 Linux 系统平台下，代码通过 GCC（GNU Compiler Collection）搭配 CMake 构建工具进行原生编译，并全局开启统一的最高级编译优化选项（如 \texttt{-O3}）。
 
-\subsection{消除毛边响应的振荡抑制分析}
-首要测例考量了基础条件（时间积分步长 $\Delta t = 0.005$ s，SDF空间体素分配尺寸为   $4 \times 10^{-4}$ m）下系统的短程刚性响应特征。传统的 第一阶 SDF NSC 求解法 在发生受力切变或者滑动越过凸轮上顶点时（即接触发生 $0.15 \sim 0.20$ 秒区间以及连续跟踪状态），产生了显著且不科学的 $y$ 面震荡突变尖峰。其速度跳变幅度超出了解析真实值的数百倍，主要归咎为距离场数值插值无法配合无穷硬性碰撞预测法。
-引入上述二阶预测干预后，由于相对接触速度及二阶张量协方差在滑动边缘处的提前动态约束削峰特性，$C_{curve}$ 项抵消了由于网格表层外推多出来的侵透量（如图 \ref{fig:accuracy} 所示）。结果曲线（红线与绿线的对比）完美切合原生网格的解析表现，完全治愈了非理想约束引起的速度震颤缺陷；并在保持刚体特性（不穿模）的同步要求下将 平均绝对误差 (MAE) 从 0.035 压低回 0.028。
+\subsection{基础时间步下的连续接触比较}
+首先考察基础时间步长 $\Delta t = 0.005$ s、\texttt{SlidingPatch} 接触表示以及 $4\times 10^{-4}$ m 体素分辨率下的短程连续接触响应。该设置对应较细的时间分辨率，此时三种方法均能够稳定跟踪参考轨迹，因而更适合用于比较不同接触表示在误差分布与局部峰值抑制方面的差异。
 
-\subsection{时间步超限（Stress Robustness）灾难对比}
-多体动力学的时间步容纳（Time-step tolerance）指标直接界定了此法可用于复杂大系统加速处理的可用域。在基准灾难级环境测试组中，我们将所有框架的固定积分步长扩大两倍，强制令 $\Delta t = 0.01$ s：
+如图 \ref{fig:accuracy} 所示，原生 mesh、1st-order SDF 与 2nd-order SDF 在全时窗内都保持了连续响应。定量上，\texttt{Native Mesh} 的速度 RMSE 为 $3.4347\times 10^{-2}$ m/s，\texttt{SdfFirstOrder} 为 $3.4209\times 10^{-2}$ m/s，而 \texttt{SdfSecondOrder} 进一步下降到 $3.1601\times 10^{-2}$ m/s。由此可见，在较小时间步下，一阶 SDF 已能够借助 persistent manifold 与局部接触筛选稳定跟踪参考曲线，而二阶曲率前馈在此基础上仍然可以提供额外的整体误差收益。
+
+从局部峰值看，SDF 路径同样明显优于原生 mesh：mesh 的速度最大绝对误差约为 $5.531\times 10^{-1}$ m/s，1st-order 与 2nd-order 则分别降低到 $1.781\times 10^{-1}$ m/s 和 $1.725\times 10^{-1}$ m/s。该结果说明，在小时间步下，二阶曲率项的优势并不体现为对整条轨迹形态的显著重构，而主要体现为对少数局部坏窗口的进一步抑制；当局部 Hessian 门控与流形跟踪策略保持一致时，二阶前馈可以在维持稳定性的同时带来可测的净改进。
+
+\subsection{较大时间步下的鲁棒性与精度比较}
+进一步将时间步长扩大到 $\Delta t = 0.01$ s，以考察较粗时间分辨率下的稳定性与误差变化。在这一设置下，三种方法均能够稳定完成积分，但它们的精度层级出现了清晰分离：
 \begin{itemize}
-    \item \textbf{普通一阶 SDF：} 随着预测失准，一阶预测法生成的惩罚斥力使得积分公式进入暴走态，$t=0.2$ s 瞬间求解发散崩溃，发生彻底穿模下坠（$z \to -231.8$ m）。
-    \item \textbf{原版纯网格 Mesh 模型：} 因为存在多个相交界面的缓冲保留容差，主体不会滑脱发生大规模发散跌落，但在尖端处仍然存在大量高频抖波，冲量运算不连续性凸显。
-    \item \textbf{二阶 Hessian SDF（本方法）：} 尽管在同一非常粗糙大时间步长操作下，包含 $(\Delta t)^2$ 调节模块的此系统非但没出现下坠跌落脱控现象，其从动跟随件的约束表现甚至比网格受力波形更加丝滑连续，平稳地穿越了全部高曲率界定段。
+    \item \textbf{Native Mesh：} 保持稳定，但速度误差最大，当前速度 RMSE 为 $5.7619\times 10^{-2}$ m/s，速度最大绝对误差为 $7.035\times 10^{-1}$ m/s。
+    \item \textbf{1st-order SDF：} 同样保持稳定，并将速度 RMSE 压低到 $3.3442\times 10^{-2}$ m/s，说明当前连续接触表示已经足以支撑较粗时间步下的一阶 SDF 求解。
+    \item \textbf{2nd-order SDF：} 在不牺牲稳定性的前提下进一步把速度 RMSE 降到 $2.4831\times 10^{-2}$ m/s，且速度最大绝对误差仅为 $1.572\times 10^{-1}$ m/s，为三者中最优。
 \end{itemize}
 
-如图 \ref{fig:robustness} 所示，这些结果确切地证明了在纯隐式驱动的系统内利用自导数作为补偿项对于扩展解域收敛圆盘产生了统治级的辅助加持作用。特别值得强调的是，在高曲率高瞬态的刚体接触场景下扩大时间步进 $\Delta t = 0.01\text{s}$：传统一阶 SDF 遭受了灾难性的约束发散断裂（红色崩溃线）；传统精确网格（Native Mesh）勉强保证了积分不发散，但速度求解在接触相界点处呈现出了剧烈杂音（青色抖动线）；而我们提出的基于 Hessian 二阶补偿的隐式接触由于预测了曲率与相对流速域，表现了最高级别的 $C^1$ 连续性与动量平稳补偿（绿色实线）。
+如图 \ref{fig:robustness} 所示，在较大时间步下，\texttt{SdfFirstOrder} 与 \texttt{SdfSecondOrder} 均能够稳定运行，并整体优于原生 mesh；其中二阶曲率前馈给出了最小的整体误差与峰值误差。由此可见，当时间分辨率进一步变粗时，高阶曲率前馈在连续滑移接触中的作用更加突出，能够提供额外的精度收益与峰值抑制能力；而与前一小节相结合，则可见二阶项的贡献具有明显的时间步相关性，其优势在较粗时间步下更加充分地体现出来。
 
-\begin{figure}[htbp]
+
+\begin{figure}[!t]
     \centering
-    \begin{minipage}{0.48\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{fig_accuracy.pdf}
-        \caption{在基础时间步长（$\Delta t = 0.005\text{s}$）下，原生 Mesh、一阶 SDF 与 二阶 Hessian SDF 的响应对比。}
-        \label{fig:accuracy}
-    \end{minipage}\hfill
-    \begin{minipage}{0.48\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{fig_robustness.pdf}
-        \caption{在超大时间步长（$\Delta t = 0.01\text{s}$）下的稳定性测试对比。二阶 Hessian 系统在苛刻步长下依然收敛平稳。}
-        \label{fig:robustness}
-    \end{minipage}
+    \includegraphics[width=0.94\linewidth]{fig_accuracy.pdf}
+    \caption{工业凸轮算例在基础时间步长（$\Delta t = 0.005\text{s}$）下的速度响应对比。三条数值曲线均保持稳定；1st-order SDF 与 mesh 的整体 RMSE 接近，但峰值误差更小，而 2nd-order SDF 进一步取得了最小的整体 RMSE 与峰值误差。}
+    \label{fig:accuracy}
+\end{figure}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=0.94\linewidth]{fig_robustness.pdf}
+    \caption{工业凸轮算例在较大时间步长（$\Delta t = 0.01\text{s}$）下的速度响应对比。1st-order 与 2nd-order SDF 都保持稳定且均优于原生 mesh，其中 2nd-order SDF 取得最小的速度 RMSE 与峰值误差。}
+    \label{fig:robustness}
 \end{figure}
 
 \subsection{计算开销与工程效率基准 (Computational Overhead Benchmarking)}
-要在工程级复杂装配体仿真中落地，由于多体动力学隐式或显式步进的严苛耗时屏障，算法的附加计算开销（Overhead）至关重要。
-通过对算法内核算力复杂度的理论与实验对齐追踪（如表 \ref{tab:overhead} 所呈现的区别），传统原生精度网格（Native Mesh）依赖于繁重的基于 GJK/EPA 的多边形遍历与交点裁切，耗时呈结构依赖的非线性增长。第一阶隐式场（1st-order SDF）将探测耗时降低为了严格的 $\mathcal{O}(1)$ 级三线性插值运算。
+除非另作说明，本文在工业凸轮、偏心圆盘--滚子解析基准以及 Onset Stress Benchmark 这三类连续滑移算例中，均默认启用了样本侧 OBB/BVH broad-phase，以降低活动集合构造阶段的候选查询成本；而 Twin Gear 仍保持默认关闭，仅在离线对照中验证其无损性与收益边界。这一设置反映了本文的基本原则：分层 broad-phase 同样需要按接触类型与局部流形形态选择性启用，而非对全部 benchmark 统一强制开启。
 
-针对本文引入的高维预测算子，计算三阶张量（Hessian 矩阵 $\mathbf{H}$）实际上仅在接触邻域新增了 6 次跨度为 $2 \times \text{voxel\_size}$ 的相邻网格快速中心差分寻址，以及一次微小的 $3 \times 3$ 张量与相对运动矢量的映射乘积。这种附加操作位于纳秒级别，其几何层面的算力递增微乎其微（$< 1\%$ 开销）。
-更为核心的突破在于，由于 $C_{curve}$ 把可能导致接触系统状态突变的虚穿透（Virtual Penetration）在进入动力学 LCP 求解器或 NCP 近似迭代法（如 Projected Gauss-Seidel）前就削峰压平。它实质性改善了系统雅可比约束矩阵的局部条件数（Condition Number），使得求解器在每个积分点内从原本需要上百次迭代（甚至由于不光滑而超时回退），剧烈降阶到了个位数水平便能实现残差清零收敛。宏观上，\textbf{这一几乎免费的高阶预测补偿不仅没有拖慢系统，反而由于稳定了求解耗时并支撑 $2 \sim 5$ 倍扩容的超大 $\Delta t$，在工程级应用下使整体计算耗时获得了成倍的提速效果}。
+要在工程级复杂装配体仿真中落地，由于多体动力学隐式或显式步进的严苛耗时屏障，算法的附加计算开销（Overhead）至关重要。当前实现中，原生网格接触仍然依赖 Chrono 原生的几何接触链，而 SDF 路径则复用了统一的 NSC/LCP 求解主链，并在连续滑移类 benchmark 上叠加了样本侧 OBB/BVH broad-phase。因而，表 \ref{tab:runtime_overview} 与表 \ref{tab:error_overview} 分别给出本文三个代表性连续接触算例上的正式运行时间和主误差指标。
+
+从这些数据可以看到，二阶曲率前馈的额外代价并没有将 SDF 路径推回到原生 mesh 的耗时量级。相反，在当前实现状态下，\texttt{SdfSecondOrder} 在工业凸轮、偏心圆盘--滚子以及 Onset Stress Benchmark 上都保持了与 \texttt{SdfFirstOrder} 同量级的时间开销，并在精度上取得了稳定的净收益。这说明本文的高阶几何建模并非单纯依赖“更贵的接触求解”，而是在接触类型感知的局部流形表示与分层候选检测共同作用下，获得了可接受甚至显著优于原生 mesh 的效率--精度折中。
 
 \begin{table}[htbp]
     \centering
-    \caption{三种接触模型在相同物理时长（3s）下的总仿真计算耗时与收敛稳定性对比}
-    \label{tab:overhead}
+    \caption{代表性连续接触 benchmark 的总运行时间对比}
+    \label{tab:runtime_overview}
     \resizebox{\columnwidth}{!}{
     \begin{tabular}{lccc}
         \toprule
-        \textbf{接触模型架构} & \textbf{仿真总耗时 ($\Delta t=0.005\text{s}$)} & \textbf{仿真总耗时 ($\Delta t=0.01\text{s}$)} & \textbf{矩阵条件数与大步长稳定性} \\
+        \textbf{Benchmark} & \textbf{Native Mesh} & \textbf{SDF 1st-order} & \textbf{SDF 2nd-order} \\
         \midrule
-        原生精确网格 (Native Mesh) & $\sim 36.5\text{s}$ & $\sim 19.8\text{s}$ & 中等（相界冲动，勉强收敛） \\
-        传统一阶距场 (1st-order SDF) & $> 210\text{s}$ (严重耗时) & \textbf{失败发散} (穿模崩溃) & 极差（穿透导致迭代飙升发散） \\
-        本提议方法 (2nd-order SDF) & \textbf{$\sim 28.2\text{s}$ (全场最快)} & \textbf{$\sim 14.3\text{s}$ (全面提速)} & \textbf{极优（平滑残差，迭代锐减）} \\
+        工业凸轮 ($\Delta t=0.01$ s, $T=3.0$ s) & $135.9$ s & $15.0$ s & $16.0$ s \\
+        偏心圆盘--滚子 ($\Delta t=0.002$ s, $T=\pi/2$ s) & $149.4$ s & $2.07$ s & $2.23$ s \\
+        Onset Stress B ($\Delta t=0.001$ s) & $111.5$ s & $35.4$ s & $36.4$ s \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{代表性连续接触 benchmark 的主误差指标对比}
+    \label{tab:error_overview}
+    \resizebox{\columnwidth}{!}{
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Benchmark} & \textbf{Native Mesh} & \textbf{SDF 1st-order} & \textbf{SDF 2nd-order} \\
+        \midrule
+        工业凸轮（速度 RMSE） & $0.0576$ & $0.0334$ & $0.0248$ \\
+        偏心圆盘--滚子（速度 RMSE） & $9.27\times10^{-4}$ & $6.94\times10^{-4}$ & $6.88\times10^{-4}$ \\
+        Onset Stress B（速度 RMSE） & $8.59\times10^{-4}$ & $8.43\times10^{-4}$ & $8.41\times10^{-4}$ \\
         \bottomrule
     \end{tabular}
     }
@@ -63,13 +82,13 @@ y(t)=e\sin(\omega t)+\sqrt{(R+r)^2-(e\cos(\omega t))^2},
 \]
 因此可以直接将数值结果与解析参考轨迹逐点对齐，而不再依赖外部商业软件输出。
 
-该基准在实现上仍然复用了与前述凸轮算例相同的 Chrono NSC + SDF 接触主链，仅对接触 regime 采用了更适合光滑单主导接触的独立参数配置。实验结果如图 \ref{fig:eccentric_roller} 所示。Chrono 原生网格接触在该算例上给出了最小的位置误差，其位置 RMSE 为 $3.36\times10^{-6}$ m、速度 RMSE 为 $9.27\times10^{-4}$ m/s，但总耗时达到 $128.1$ s。第一阶 SDF 将总耗时压缩到 $15.2$ s，位置 RMSE 为 $9.31\times10^{-6}$ m，速度 RMSE 为 $3.52\times10^{-3}$ m/s。进一步引入二阶曲率前馈后，第二阶 SDF 在几乎保持相同计算开销（$16.8$ s）的前提下，将速度 RMSE 进一步降低到 $6.70\times10^{-4}$ m/s，并将最大速度误差压制在 $1.20\times10^{-2}$ m/s，与原生网格结果同量级。
+该基准在实现上仍然复用了与前述凸轮算例相同的 Chrono NSC + SDF 接触主链，仅对接触 regime 采用了更适合光滑单主导接触的独立参数配置，并默认启用了样本侧 OBB/BVH broad-phase。实验结果如图 \ref{fig:eccentric_roller} 所示。Chrono 原生网格接触在该算例上给出了最小的位置误差，其位置 RMSE 为 $3.0\times10^{-6}$ m、速度 RMSE 为 $9.27\times10^{-4}$ m/s，但总耗时达到 $149.4$ s。第一阶 SDF 将总耗时压缩到 $2.07$ s，位置 RMSE 为 $9.0\times10^{-6}$ m，速度 RMSE 为 $6.94\times10^{-4}$ m/s。进一步引入二阶曲率前馈后，第二阶 SDF 在几乎保持相同计算开销（$2.23$ s）的前提下，将速度 RMSE 进一步降低到 $6.88\times10^{-4}$ m/s，并将最大速度误差控制在 $1.20\times10^{-2}$ m/s，与原生网格结果同量级。
 
 这一对照实验的重要意义在于：它证明了当前框架中的二阶 SDF 并非只能在复杂工程几何中“局部缓解误差”，而是在真正光滑、解析可解的连续滑移接触中，可以在保持显著效率优势的同时取得相对于一阶 SDF 的明确精度增益，甚至在速度指标上逼近并略优于 Chrono 原生网格接触。这一结果与后文 Twin Gear 非光滑啮合算例形成互补：前者说明二阶曲率前馈在平滑连续流形上是有效且高效的，后者则揭示其在 $C^0$ 奇异边界附近仍然存在结构性误差下限。
 
-\begin{figure}[htbp]
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=\linewidth]{eccentric_roller_benchmark.pdf}
+    \includegraphics[width=0.94\linewidth]{eccentric_roller_benchmark.pdf}
     \caption{偏心圆盘-滚子从动件解析对照基准。上图给出从动件位移轨迹，中图给出速度轨迹，下图给出相对于解析参考的速度误差。该算例属于光滑连续滑移接触，2nd-order SDF 在保持与 1st-order SDF 同量级开销的同时，显著降低了速度误差，并在该指标上逼近且略优于 Chrono 原生网格接触。}
     \label{fig:eccentric_roller}
 \end{figure}
@@ -77,14 +96,45 @@ y(t)=e\sin(\omega t)+\sqrt{(R+r)^2-(e\cos(\omega t))^2},
 \subsection{接触建立与持续滑移的应力测试 (Onset Stress B)}
 为了进一步区分“首次建立接触时的 manifold 激活误差”与“建立接触后的持续滑移误差”，本文在 Version A 的正间隙起始偏心圆盘-滚子模型基础上，引入了一个弱的 follower return spring-damper，从而构造出 Version B 应力测试。该模型仍然保持与 Version A 相同的光滑几何、相同的目标首次接触时刻（$t_{\mathrm{on}}\approx 0.15$ s）和相同的解析参考，但通过弱预载使从动件在 onset 之后持续贴近包络运动，而不再像 Version A 那样在首次碰撞后以近似自由飞行方式脱开。
 
-在当前收敛后的默认设置下，Version B 采用 $\Delta t = 0.001$ s、32 个 dynamics substeps、$100\,\mu$m 的 SDF 体素分辨率以及 $k=670$ N/m、$c=47$ Ns/m 的 follower return spring-damper。实验结果如图 \ref{fig:onset_stress_b} 所示。Chrono 原生网格接触在该算例上的速度 RMSE 为 $8.59\times10^{-4}$ m/s，总耗时为 $53.5$ s；1st-order SDF 的速度 RMSE 为 $8.43\times10^{-4}$ m/s，总耗时为 $66.9$ s；2nd-order SDF 则进一步降低到 $8.41\times10^{-4}$ m/s，总耗时为 $66.3$ s。也就是说，在这个专门针对 onset 后持续滑移设计的 stress case 上，经过面向连续接触的局部候选筛选、局部几何拟合与更高时间分辨率处理后，两条 SDF 曲线都已经在速度误差指标上达到并略微超过原生 mesh，其中 2nd-order SDF 取得了最优结果。
+在当前收敛后的默认设置下，Version B 采用 $\Delta t = 0.001$ s、32 个 dynamics substeps、$100\,\mu$m 的 SDF 体素分辨率以及 $k=670$ N/m、$c=47$ Ns/m 的 follower return spring-damper，并默认启用了样本侧 OBB/BVH broad-phase。实验结果如图 \ref{fig:onset_stress_b} 所示。Chrono 原生网格接触在该算例上的速度 RMSE 为 $8.59\times10^{-4}$ m/s，总耗时为 $111.5$ s；1st-order SDF 的速度 RMSE 为 $8.43\times10^{-4}$ m/s，总耗时为 $35.4$ s；2nd-order SDF 则进一步降低到 $8.41\times10^{-4}$ m/s，总耗时为 $36.4$ s。也就是说，在这个专门针对 onset 后持续滑移设计的 stress case 上，经过面向连续接触的局部候选筛选、局部几何拟合与更高时间分辨率处理后，两条 SDF 曲线都已经在速度 RMSE 指标上达到并略微超过原生 mesh，其中 2nd-order SDF 取得了最优结果。
 
-这一结果的意义在于：它说明当前框架中针对连续滑移接触加入的 persistent sliding manifold 与局部几何拟合并非只在完整工业凸轮算例中“看起来有效”，而是能够在解析可控、首次接触时刻明确、后续持续滑移阶段可单独检验的 stress benchmark 中真实降低峰值误差并恢复长期贴合；与此同时，面向 onset 的候选筛选则为该过程提供了额外的接触建立稳定化机制。与前述 eccentric benchmark 相比，Version B 更强调从自由间隙进入接触后长期维持贴合的难度；与后续 twin gear benchmark 相比，它又避免了 $C^0$ 奇异边界与多分支最近点切换，因此能够更干净地验证连续接触场景下的高阶 SDF 接触建模能力。
-\begin{figure}[htbp]
+这一结果的意义在于：它说明当前框架中针对连续滑移接触加入的 persistent sliding manifold 与局部几何拟合并非只在完整工业凸轮算例中“看起来有效”，而是能够在解析可控、首次接触时刻明确、后续持续滑移阶段可单独检验的 stress benchmark 中真实恢复长期贴合，并将整体速度误差稳定压低到与原生 mesh 同量级；与此同时，面向 onset 的候选筛选则为该过程提供了额外的接触建立稳定化机制。与前述 eccentric benchmark 相比，Version B 更强调从自由间隙进入接触后长期维持贴合的难度；与后续 twin gear benchmark 相比，它又避免了 $C^0$ 奇异边界与多分支最近点切换，因此能够更干净地验证连续接触场景下的高阶 SDF 接触建模能力。
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=\linewidth]{onset_stress_benchmark.pdf}
-    \caption{Onset Stress Benchmark Version B。该算例在 Version A 的正间隙起始模型上加入弱预载 spring-damper，使从动件在首次接触后持续贴近解析包络。上图给出位移轨迹，中图给出速度轨迹并放大 onset 邻域，下图给出相对于分段解析参考的速度误差。结果表明，在持续滑移阶段，1st-order 与 2nd-order SDF 都已达到并略微优于原生 mesh 的速度精度，其中 2nd-order SDF 最优；该结果主要得益于 persistent sliding manifold 与局部几何拟合，onset 候选筛选则提供了辅助稳定化作用。}
+    \includegraphics[width=0.94\linewidth]{onset_stress_benchmark.pdf}
+    \caption{Onset Stress Benchmark Version B。该算例在 Version A 的正间隙起始模型上加入弱预载 spring-damper，使从动件在首次接触后持续贴近解析包络。上图给出位移轨迹，中图给出速度轨迹，下图给出相对于分段解析参考的速度误差。结果表明，在持续滑移阶段，1st-order 与 2nd-order SDF 都已达到并略微优于原生 mesh 的速度 RMSE，其中 2nd-order SDF 最优；该结果主要得益于 persistent sliding manifold 与局部几何拟合，onset 候选筛选则提供了辅助稳定化作用。}
     \label{fig:onset_stress_b}
+\end{figure}
+
+\subsection{基础弹性碰撞一致性验证 (Head-on Equal-Sphere Impact)}
+除连续滑移与持续贴合类算例外，本文进一步构造了一个最基础的纯冲量验证场景：两个半径相同、质量相同的球体沿同一直线对心碰撞，系统中不施加重力，摩擦系数取零，并通过平移副将二者约束在单一平移方向上，以排除侧向漂移与姿态扰动。初始条件设为球 A 以单位速度朝向静止球 B 运动，理论上在完全弹性碰撞下应满足最经典的一维速度交换关系，即球 A 碰后静止、球 B 完整继承球 A 的初始速度。由于几何、质量与约束均可解析刻画，该算例适合作为通用 SDF impact handling 的基础物理一致性检验，而非工程效率 benchmark。
+
+图 \ref{fig:headon_spheres} 给出了球 A 与球 B 的速度时间历程。当前通用 SDF 接触注入路径下，一阶 SDF 与二阶 SDF 均在离散输出上准确恢复了理想的速度交换：在碰撞时刻附近，球 A 的速度从 $1.0$ m/s 跳变为 $0.0$ m/s，球 B 则从 $0.0$ m/s 跳变为 $1.0$ m/s，其相对于解析分段参考的速度 RMSE 在当前采样点上均为 $0$。
+
+相比之下，Chrono 原生球体接触在该步长下同样得到正确的最终速度交换，但在离散输出上表现出一个时间步量级的切换滞后，因此对应的速度 RMSE 为 $3.16\times10^{-2}$ m/s。该结果说明，当前基于 SDF 的通用 impact-aware 接触注入不仅能够处理连续滑移接触，也能够在最基础的无摩擦纯冲量碰撞中给出正确的动量传递结果，从而为后续推广到更一般的瞬态碰撞问题提供了必要的物理一致性基础。
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=0.94\linewidth]{headon_spheres_benchmark.pdf}
+    \caption{相同半径双球对心弹性碰撞基准。上图给出球 A 沿约束方向的速度历程，下图给出球 B 沿约束方向的速度历程。黑色虚线为解析速度交换真解。当前通用 SDF impact-aware 接触注入路径下，1st-order 与 2nd-order SDF 均能在离散输出上恢复理想的速度交换，而原生 mesh 在当前时间步下表现出一个时间步量级的切换滞后。}
+    \label{fig:headon_spheres}
+\end{figure}
+
+\subsection{异质量对心碰撞的一致性验证 (Head-on Unequal-Mass Sphere Impact)}
+为了进一步确认上述结论并非仅限于等质量球体的速度交换特例，本文额外构造了一个同半径、异质量的纯冲量碰撞算例。两球半径仍保持一致，但取球 B 的质量为球 A 的两倍，初始条件设为球 A 静止、球 B 以 $-1.0$ m/s 沿约束方向撞向球 A。在完全弹性的一维对心碰撞下，解析解满足
+\[
+v_A^+=-\frac{4}{3}\ \text{m/s},\qquad
+v_B^+=-\frac{1}{3}\ \text{m/s}.
+\]
+这一算例与前述等质量基准共享相同的无重力、无摩擦和平移副约束条件，但由于质量比发生改变，其碰后速度不再是简单交换，因此更适合用于检验当前通用 SDF impact-aware 接触注入是否真正遵循解析冲量规律。
+
+图 \ref{fig:headon_spheres_massratio} 给出了异质量对心碰撞下球 A 与球 B 的速度历程。实验结果表明，当前默认通用 SDF 路径在该算例中同样能够与解析分段真解逐点对齐：一阶与二阶 SDF 的碰后速度分别收敛到 $-4/3$ m/s 和 $-1/3$ m/s，两个球体对应的速度 RMSE 均约为 $2.6\times10^{-7}$。相比之下，Chrono 原生球体接触在最终速度上仍然给出正确结果，但在当前步长下依然存在一个离散时间步量级的切换滞后，对应球 A 与球 B 的速度 RMSE 分别为 $4.22\times10^{-2}$ m/s 和 $2.11\times10^{-2}$ m/s。该结果说明，当前通用 SDF impact handling 并非仅能重现等质量速度交换，而是已经能够在更一般的异质量对心弹性碰撞中恢复正确的解析冲量传递。
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=0.94\linewidth]{headon_spheres_massratio_benchmark.pdf}
+    \caption{异质量双球对心弹性碰撞基准，其中球 B 的质量为球 A 的两倍。上图给出球 A 沿约束方向的速度历程，下图给出球 B 沿约束方向的速度历程。黑色虚线为一维弹性碰撞解析真解。当前通用 SDF impact-aware 接触注入路径下，1st-order 与 2nd-order SDF 均能够在离散输出上恢复正确的异质量碰后速度，而原生 mesh 仍表现出一个时间步量级的切换滞后。}
+    \label{fig:headon_spheres_massratio}
 \end{figure}
 
 \subsection{复杂啮合中的改善与剩余局限 (Twin Gear Benchmark)}
@@ -96,9 +146,9 @@ y(t)=e\sin(\omega t)+\sqrt{(R+r)^2-(e\cos(\omega t))^2},
 
 因此，最新的 gear 结果给出的结论应当比“二阶方法在奇异几何上彻底失效”更为克制：\textbf{在引入合适的接触 patch 约化与几何筛选后，基于二阶导数的 SDF 接触模型即便在 $C^0$ 奇异边界附近，仍然可以取得相对于一阶模型的可测改进；但其误差下限依然受制于点接触泰勒展开对非光滑分支切换的先天敏感性。} 这一结果说明二阶曲率前馈在复杂装配体中具有实际价值，但也同时提示：若要继续逼近工业基准，未来仍需从局部点微分范式进一步迈向更高维的积分型 SDF 或体积接触表述。
 
-\begin{figure}[htbp]
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=\linewidth]{gear_error.pdf}
+    \includegraphics[width=0.94\linewidth]{gear_error.pdf}
     \caption{Twin Gear 齿轮啮合系统在不同曲率计算策略下的从动轮角速度瞬态响应曲线及误差分析。最新实现下，2nd-order SDF 已经能够在全时间窗 MAE 上优于 1st-order SDF，并在轮齿交接区削弱局部振荡；但相较于商业工业基准，点接触二阶微分模型在 $C^0$ 奇异边界附近仍保留可见的残余误差，表明其改进是显著的但并非终局性的。}
     \label{fig:gear_error}
 \end{figure}

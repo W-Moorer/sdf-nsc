@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Revolute Clearance Joint Comparison</title>
+  <style>
+    body {
+      margin: 24px auto;
+      max-width: 1100px;
+      font-family: "Times New Roman", Times, serif;
+      color: #1b1b1b;
+      line-height: 1.45;
+      padding: 0 16px 40px;
+    }
+    h1, h2, h3 { margin-bottom: 0.3em; }
+    p { margin-top: 0.3em; }
+    img { width: 100%; border: 1px solid #d8d8d8; }
+    .figure { margin: 18px 0 28px; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0 24px;
+      font-size: 15px;
+    }
+    th, td {
+      border: 1px solid #cfcfcf;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    th {
+      background: #f2f2f2;
+    }
+    .note {
+      background: #f7f8fb;
+      border-left: 4px solid #8ca0d7;
+      padding: 10px 14px;
+      margin: 18px 0;
+    }
+    code { font-family: Consolas, monospace; font-size: 0.95em; }
+  </style>
+</head>
+<body>
+  <h1>Revolute Clearance Joint Benchmark</h1>
+  <p>
+    This report compares the extracted RecurDyn revolute-clearance model under the current project implementations
+    (<code>mesh</code>, <code>sdf_1st</code>, and <code>sdf_2nd</code>) against the reference clearance trajectories
+    (<code>body2.csv</code>, <code>body3.csv</code>) and the ideal revolute-joint reference
+    (<code>body2_ideal.csv</code>).
+  </p>
+  <div class="note">
+    <strong>Extracted OBJ assets</strong><br/>
+    Body1 housing surface: <code>assets/rev_joint_clearance/models/body1_subtract1.obj</code><br/>
+    Body3 pin surface: <code>assets/rev_joint_clearance/models/body3_cylinder1.obj</code>
+  </div>
+
+  <h2>Body2 Comparison</h2>
+  <p>
+    Body2 is the payload body rigidly attached to the clearance pin. The plot overlays the current project trajectories
+    with both the RecurDyn clearance simulation and the ideal revolute-joint reference.
+  </p>
+  <div class="figure">
+    <img src="figures/rev_joint_clearance_body2_compare.png" alt="Body2 comparison" />
+  </div>
+
+  <h2>Body3 Comparison</h2>
+  <p>
+    Body3 is the clearance pin. RecurDyn provides the clearance trajectory for this body; there is no separate ideal
+    body3 reference because the ideal case replaces the clearance joint with a pure revolute joint.
+  </p>
+  <div class="figure">
+    <img src="figures/rev_joint_clearance_body3_compare.png" alt="Body3 comparison" />
+  </div>
+
+  <h2>Body3 Rotation Response</h2>
+  <p>
+    Because Body2 is rigidly attached to Body3, the relative vector from Body3 to Body2.CM defines the effective
+    swing angle of the pin-payload assembly. The curves below compare that inferred rotation from RecurDyn with the
+    directly exported project-side angular response.
+  </p>
+  <div class="figure">
+    <img src="figures/rev_joint_clearance_body3_rotation_compare.png" alt="Body3 rotation comparison" />
+  </div>
+
+  <h2>Error Summary</h2>
+  
+    <section>
+      <h3>Body2 vs RecurDyn clearance</h3>
+      <table>
+        <thead><tr><th>Method</th><th>TY pos RMSE</th><th>TZ pos RMSE</th><th>TY vel RMSE</th><th>TZ vel RMSE</th></tr></thead>
+        <tbody>
+          <tr><th>Mesh</th><td>10.199300</td><td>3.285512</td><td>11.658378</td><td>2.453643</td></tr><tr><th>SDF 1st</th><td>0.709196</td><td>0.503403</td><td>0.954866</td><td>0.688040</td></tr><tr><th>SDF 2nd</th><td>0.616754</td><td>0.358543</td><td>0.703283</td><td>0.533685</td></tr>
+        </tbody>
+      </table>
+    </section>
+    
+  
+    <section>
+      <h3>Body2 vs ideal revolute</h3>
+      <table>
+        <thead><tr><th>Method</th><th>TY pos RMSE</th><th>TZ pos RMSE</th><th>TY vel RMSE</th><th>TZ vel RMSE</th></tr></thead>
+        <tbody>
+          <tr><th>Mesh</th><td>10.190829</td><td>3.286067</td><td>11.629283</td><td>2.442094</td></tr><tr><th>SDF 1st</th><td>0.703957</td><td>0.507422</td><td>0.940515</td><td>0.686154</td></tr><tr><th>SDF 2nd</th><td>0.610955</td><td>0.361616</td><td>0.673387</td><td>0.524754</td></tr>
+        </tbody>
+      </table>
+    </section>
+    
+  
+    <section>
+      <h3>Body3 vs RecurDyn clearance</h3>
+      <table>
+        <thead><tr><th>Method</th><th>TY pos RMSE</th><th>TZ pos RMSE</th><th>TY vel RMSE</th><th>TZ vel RMSE</th></tr></thead>
+        <tbody>
+          <tr><th>Mesh</th><td>9.446047</td><td>0.125548</td><td>10.533225</td><td>0.120209</td></tr><tr><th>SDF 1st</th><td>0.017846</td><td>0.005138</td><td>0.271273</td><td>0.128814</td></tr><tr><th>SDF 2nd</th><td>0.017581</td><td>0.004120</td><td>0.287770</td><td>0.091517</td></tr>
+        </tbody>
+      </table>
+    </section>
+    
+  
+    <section>
+      <h3>Body3 rotation vs RecurDyn clearance</h3>
+      <table>
+        <thead><tr><th>Method</th><th>Angle RMSE</th><th>Angular vel RMSE</th></tr></thead>
+        <tbody>
+          <tr><th>Mesh</th><td>1.683977</td><td>1.105517</td></tr><tr><th>SDF 1st</th><td>0.332057</td><td>0.230142</td></tr><tr><th>SDF 2nd</th><td>0.272790</td><td>0.183134</td></tr>
+        </tbody>
+      </table>
+    </section>
+    
+  
+    <section>
+      <h3>Body3 rotation vs ideal revolute</h3>
+      <table>
+        <thead><tr><th>Method</th><th>Angle RMSE</th><th>Angular vel RMSE</th></tr></thead>
+        <tbody>
+          <tr><th>Mesh</th><td>1.677902</td><td>1.099250</td></tr><tr><th>SDF 1st</th><td>0.327180</td><td>0.225783</td></tr><tr><th>SDF 2nd</th><td>0.266550</td><td>0.169501</td></tr>
+        </tbody>
+      </table>
+    </section>
+    
+
+  <h2>Current Reading</h2>
+  <p>
+    The position comparison shows that Body3 already tracks the RecurDyn clearance orbit much more closely than Body2.
+    The added rotation-response comparison helps isolate the remaining source of Body2 error: if the effective swing
+    angle of the Body3-Body2 assembly diverges from the RecurDyn clearance rotation, then Body2.CM will be displaced
+    even when the Body3 translation itself is already close.
+  </p>
+  <p>
+    This means the benchmark is executable end-to-end and the extracted OBJ assets are usable, but the remaining
+    mismatch should now be interpreted primarily as a rotational-response mismatch of the pin-payload assembly rather
+    than a simple output-point or mesh-registration error.
+  </p>
+</body>
+</html>
