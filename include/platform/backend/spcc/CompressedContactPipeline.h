@@ -21,6 +21,7 @@ struct ReducedContactPoint {
     std::size_t subpatch_id = 0;
     std::size_t support_id = 0;
     std::size_t dense_members = 0;
+    int emission_count = 1;
 
     chrono::ChVector3d x_W;
     chrono::ChVector3d x_master_M;
@@ -62,6 +63,10 @@ struct TemporalSubpatchState {
     chrono::ChVector3d centroid_W;
     chrono::ChVector3d avg_normal_W;
     double diameter = 0.0;
+    chrono::ChVector3d reference_origin_W;
+    chrono::ChVector3d reference_force_W;
+    chrono::ChVector3d reference_moment_W;
+    double reference_total_load = 0.0;
     std::vector<ReducedContactPoint> contacts;
 };
 

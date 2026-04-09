@@ -95,6 +95,8 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
         GetScopedEnvDouble(env_prefix, "WARM_START_MATCH_RADIUS", cfg.warm_start_match_radius);
     cfg.temporal_load_regularization =
         GetScopedEnvDouble(env_prefix, "TEMPORAL_LOAD_REGULARIZATION", cfg.temporal_load_regularization);
+    cfg.temporal_reference_blend =
+        GetScopedEnvDouble(env_prefix, "TEMPORAL_REFERENCE_BLEND", cfg.temporal_reference_blend);
     cfg.max_wrench_error = GetScopedEnvDouble(env_prefix, "MAX_WRENCH_ERROR", cfg.max_wrench_error);
     cfg.max_cop_error = GetScopedEnvDouble(env_prefix, "MAX_COP_ERROR", cfg.max_cop_error);
     cfg.max_gap_error = GetScopedEnvDouble(env_prefix, "MAX_GAP_ERROR", cfg.max_gap_error);
@@ -382,18 +384,21 @@ public:
 
         int penetration_count = 0;
         for (auto& contact : reduced_contacts) {
-            chrono::ChCollisionInfo cinfo;
-            cinfo.modelA = m_master->GetCollisionModel().get();
-            cinfo.modelB = m_slave->GetCollisionModel().get();
-            cinfo.shapeA = nullptr;
-            cinfo.shapeB = nullptr;
-            cinfo.vN = m_flip_contact_normal ? (-contact.n_W) : contact.n_W;
-            cinfo.vpB = contact.x_W;
-            cinfo.vpA = contact.x_master_surface_W;
-            cinfo.distance = contact.phi_eff;
+            const int emission_count = std::max(1, contact.emission_count);
+            for (int emission_index = 0; emission_index < emission_count; ++emission_index) {
+                chrono::ChCollisionInfo cinfo;
+                cinfo.modelA = m_master->GetCollisionModel().get();
+                cinfo.modelB = m_slave->GetCollisionModel().get();
+                cinfo.shapeA = nullptr;
+                cinfo.shapeB = nullptr;
+                cinfo.vN = m_flip_contact_normal ? (-contact.n_W) : contact.n_W;
+                cinfo.vpB = contact.x_W;
+                cinfo.vpA = contact.x_master_surface_W;
+                cinfo.distance = contact.phi_eff;
 
-            sys->GetContactContainer()->AddContact(cinfo, m_material, m_material);
-            penetration_count++;
+                sys->GetContactContainer()->AddContact(cinfo, m_material, m_material);
+                penetration_count++;
+            }
         }
 
         if (m_reduced_contacts_out) {

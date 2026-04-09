@@ -212,6 +212,7 @@ CompressedContactConfig MakeDynamicConfig() {
     cfg.max_reduced_points_per_patch = 4;
     cfg.warm_start_match_radius = 6.0e-3;
     cfg.temporal_load_regularization = 1.0e-6;
+    cfg.temporal_reference_blend = 0.05;
     cfg.max_wrench_error = 0.08;
     cfg.max_cop_error = 2.5e-3;
     cfg.max_gap_error = 0.25;
@@ -484,17 +485,20 @@ class ValidationCollisionCallback : public chrono::ChSystem::CustomCollisionCall
         pipeline_.BuildReducedContacts(master_state, slave_state, *sdf_, mu, sys->GetStep(), reduced_contacts,
                                        &last_stats);
         for (const auto& contact : reduced_contacts) {
-            chrono::ChCollisionInfo cinfo;
-            cinfo.modelA = master_->GetCollisionModel().get();
-            cinfo.modelB = slave_->GetCollisionModel().get();
-            cinfo.shapeA = nullptr;
-            cinfo.shapeB = nullptr;
-            cinfo.vN = contact.n_W;
-            cinfo.vpA = contact.x_master_surface_W;
-            cinfo.vpB = contact.x_W;
-            cinfo.distance = contact.phi_eff;
-            sys->GetContactContainer()->AddContact(cinfo, material_, material_);
-            ++last_contact_count;
+            const int emission_count = std::max(1, contact.emission_count);
+            for (int emission_index = 0; emission_index < emission_count; ++emission_index) {
+                chrono::ChCollisionInfo cinfo;
+                cinfo.modelA = master_->GetCollisionModel().get();
+                cinfo.modelB = slave_->GetCollisionModel().get();
+                cinfo.shapeA = nullptr;
+                cinfo.shapeB = nullptr;
+                cinfo.vN = contact.n_W;
+                cinfo.vpA = contact.x_master_surface_W;
+                cinfo.vpB = contact.x_W;
+                cinfo.distance = contact.phi_eff;
+                sys->GetContactContainer()->AddContact(cinfo, material_, material_);
+                ++last_contact_count;
+            }
         }
         last_reduced_contacts = reduced_contacts;
     }
