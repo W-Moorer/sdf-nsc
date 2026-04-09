@@ -103,6 +103,34 @@ double TangentialRadiusSquared(const chrono::ChVector3d& x_W,
     return tangential.Length2();
 }
 
+chrono::ChVector3d ProjectToTangentUnit(const chrono::ChVector3d& v_W, const chrono::ChVector3d& n_W) {
+    const chrono::ChVector3d tangent_W = v_W - chrono::Vdot(v_W, n_W) * n_W;
+    const double tangent_len = tangent_W.Length();
+    if (!(tangent_len > 1.0e-12)) {
+        return chrono::ChVector3d(0.0, 0.0, 0.0);
+    }
+    return tangent_W * (1.0 / tangent_len);
+}
+
+chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, const DenseSubpatch& subpatch) {
+    const chrono::ChVector3d tangential_velocity_W = support.v_rel_W -
+                                                     chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W) *
+                                                         subpatch.avg_normal_W;
+    const chrono::ChVector3d from_velocity =
+        ProjectToTangentUnit(chrono::Vcross(subpatch.avg_normal_W, tangential_velocity_W), subpatch.avg_normal_W);
+    if (from_velocity.Length2() > 0.0) {
+        return from_velocity;
+    }
+
+    const chrono::ChVector3d radial_W = support.x_W - subpatch.centroid_W;
+    const chrono::ChVector3d from_radial = ProjectToTangentUnit(radial_W, subpatch.avg_normal_W);
+    if (from_radial.Length2() > 0.0) {
+        return from_radial;
+    }
+
+    return subpatch.t1_W;
+}
+
 double SubpatchMatchGate(const CompressedContactConfig& cfg,
                          const DenseSubpatch& current,
                          const TemporalSubpatchState& previous) {
@@ -768,11 +796,15 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.x_master_surface_W = support.x_master_surface_W;
             reduced.n_W = support.n_W;
             reduced.v_rel_W = support.v_rel_W;
+            reduced.stencil_axis_W = ChooseStencilAxis(support, subpatch);
             reduced.phi = support.phi;
             reduced.phi_eff = support.phi_eff;
             reduced.area_weight = support.area_weight;
             reduced.support_weight = support.support_weight;
             reduced.allocated_load = support.allocated_load;
+            reduced.stencil_half_extent =
+                (reduced.emission_count > 1) ? std::min(0.35 * support.coverage_radius, 0.15 * subpatch.diameter)
+                                             : 0.0;
             reduced.mu = mu_default;
             out_contacts.push_back(reduced);
         }

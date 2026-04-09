@@ -107,6 +107,51 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
     return cfg;
 }
 
+chrono::ChVector3d NormalizeOrZero(const chrono::ChVector3d& v) {
+    const double len = v.Length();
+    if (!(len > 1.0e-12)) {
+        return chrono::ChVector3d(0.0, 0.0, 0.0);
+    }
+    return v * (1.0 / len);
+}
+
+void EmitReducedContactStencil(chrono::ChSystem* sys,
+                               const std::shared_ptr<chrono::ChBody>& master,
+                               const std::shared_ptr<chrono::ChBody>& slave,
+                               const std::shared_ptr<chrono::ChContactMaterial>& material,
+                               const spcc::ReducedContactPoint& contact,
+                               bool flip_contact_normal,
+                               int& emitted_contacts) {
+    auto emit_one = [&](const chrono::ChVector3d& vpA_W, const chrono::ChVector3d& vpB_W) {
+        chrono::ChCollisionInfo cinfo;
+        cinfo.modelA = master->GetCollisionModel().get();
+        cinfo.modelB = slave->GetCollisionModel().get();
+        cinfo.shapeA = nullptr;
+        cinfo.shapeB = nullptr;
+        cinfo.vN = flip_contact_normal ? (-contact.n_W) : contact.n_W;
+        cinfo.vpB = vpB_W;
+        cinfo.vpA = vpA_W;
+        cinfo.distance = contact.phi_eff;
+        sys->GetContactContainer()->AddContact(cinfo, material, material);
+        ++emitted_contacts;
+    };
+
+    if (contact.emission_count <= 1 || !(contact.stencil_half_extent > 1.0e-8)) {
+        emit_one(contact.x_master_surface_W, contact.x_W);
+        return;
+    }
+
+    const chrono::ChVector3d axis_W = NormalizeOrZero(contact.stencil_axis_W);
+    if (axis_W.Length2() <= 0.0) {
+        emit_one(contact.x_master_surface_W, contact.x_W);
+        return;
+    }
+
+    const chrono::ChVector3d offset_W = contact.stencil_half_extent * axis_W;
+    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W);
+    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W);
+}
+
 spcc::RigidBodyStateW MakeRigidBodyStateW(const std::shared_ptr<chrono::ChBody>& body,
                                           int body_id) {
     spcc::RigidBodyStateW state;
@@ -384,21 +429,8 @@ public:
 
         int penetration_count = 0;
         for (auto& contact : reduced_contacts) {
-            const int emission_count = std::max(1, contact.emission_count);
-            for (int emission_index = 0; emission_index < emission_count; ++emission_index) {
-                chrono::ChCollisionInfo cinfo;
-                cinfo.modelA = m_master->GetCollisionModel().get();
-                cinfo.modelB = m_slave->GetCollisionModel().get();
-                cinfo.shapeA = nullptr;
-                cinfo.shapeB = nullptr;
-                cinfo.vN = m_flip_contact_normal ? (-contact.n_W) : contact.n_W;
-                cinfo.vpB = contact.x_W;
-                cinfo.vpA = contact.x_master_surface_W;
-                cinfo.distance = contact.phi_eff;
-
-                sys->GetContactContainer()->AddContact(cinfo, m_material, m_material);
-                penetration_count++;
-            }
+            EmitReducedContactStencil(sys, m_master, m_slave, m_material, contact, m_flip_contact_normal,
+                                      penetration_count);
         }
 
         if (m_reduced_contacts_out) {

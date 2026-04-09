@@ -28,12 +28,14 @@ struct ReducedContactPoint {
     chrono::ChVector3d x_master_surface_W;
     chrono::ChVector3d n_W;
     chrono::ChVector3d v_rel_W;
+    chrono::ChVector3d stencil_axis_W;
 
     double phi = 0.0;
     double phi_eff = 0.0;
     double area_weight = 0.0;
     double support_weight = 0.0;
     double allocated_load = 0.0;
+    double stencil_half_extent = 0.0;
     double mu = 0.0;
 };
 
