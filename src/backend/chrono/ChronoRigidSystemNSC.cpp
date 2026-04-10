@@ -127,6 +127,8 @@ void TransferReducedReactionCaches(const std::vector<spcc::ReducedContactPoint>&
                 current.reaction_cache_primary = previous.reaction_cache_primary;
                 current.reaction_cache_secondary = previous.reaction_cache_secondary;
                 current.reaction_cache_tertiary = previous.reaction_cache_tertiary;
+                current.reaction_cache_quaternary = previous.reaction_cache_quaternary;
+                current.reaction_cache_quinary = previous.reaction_cache_quinary;
                 break;
             }
         }
@@ -174,6 +176,30 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
                  contact.reaction_cache_secondary.data());
         emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W,
                  contact.reaction_cache_tertiary.data());
+        return;
+    }
+
+    if (contact.emission_count >= 5) {
+        const chrono::ChVector3d secondary_axis_W = NormalizeOrZero(contact.stencil_axis_secondary_W);
+        if (!(secondary_axis_W.Length2() > 0.0) || !(contact.stencil_half_extent_secondary > 1.0e-8)) {
+            contact.emission_count = 3;
+            emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
+            emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W,
+                     contact.reaction_cache_secondary.data());
+            emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W,
+                     contact.reaction_cache_tertiary.data());
+            return;
+        }
+
+        const chrono::ChVector3d secondary_offset_W = contact.stencil_half_extent_secondary * secondary_axis_W;
+        contact.emission_count = 5;
+        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
+        emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_secondary.data());
+        emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_tertiary.data());
+        emit_one(contact.x_master_surface_W - secondary_offset_W, contact.x_W - secondary_offset_W,
+                 contact.reaction_cache_quaternary.data());
+        emit_one(contact.x_master_surface_W + secondary_offset_W, contact.x_W + secondary_offset_W,
+                 contact.reaction_cache_quinary.data());
         return;
     }
 

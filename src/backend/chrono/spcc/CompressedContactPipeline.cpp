@@ -155,12 +155,20 @@ chrono::ChVector3d DecodeTotalReactionForce(const ReducedContactPoint& contact) 
         DecodeReactionCacheWorldForce(contact.reaction_cache_secondary, contact.n_W);
     const chrono::ChVector3d positive_force_W =
         DecodeReactionCacheWorldForce(contact.reaction_cache_tertiary, contact.n_W);
+    const chrono::ChVector3d secondary_negative_force_W =
+        DecodeReactionCacheWorldForce(contact.reaction_cache_quaternary, contact.n_W);
+    const chrono::ChVector3d secondary_positive_force_W =
+        DecodeReactionCacheWorldForce(contact.reaction_cache_quinary, contact.n_W);
 
     if (contact.emission_count <= 1) {
         return center_force_W;
     }
     if (contact.emission_count == 2) {
         return negative_force_W + positive_force_W;
+    }
+    if (contact.emission_count >= 5) {
+        return center_force_W + negative_force_W + positive_force_W + secondary_negative_force_W +
+               secondary_positive_force_W;
     }
     return center_force_W + negative_force_W + positive_force_W;
 }
@@ -383,6 +391,32 @@ chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, con
     return subpatch.t1_W;
 }
 
+chrono::ChVector3d ChooseSecondaryStencilAxis(const ReducedSupportAggregate& support,
+                                              const DenseSubpatch& subpatch,
+                                              const chrono::ChVector3d& primary_axis_W) {
+    chrono::ChVector3d secondary_axis_W = chrono::Vcross(subpatch.avg_normal_W, primary_axis_W);
+    secondary_axis_W = ProjectToTangentUnit(secondary_axis_W, subpatch.avg_normal_W);
+    if (secondary_axis_W.Length2() > 0.0) {
+        return secondary_axis_W;
+    }
+
+    const chrono::ChVector3d tangential_velocity_W =
+        support.v_rel_W - chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W) * subpatch.avg_normal_W;
+    secondary_axis_W = ProjectToTangentUnit(tangential_velocity_W, subpatch.avg_normal_W);
+    if (secondary_axis_W.Length2() > 0.0) {
+        if (std::abs(chrono::Vdot(secondary_axis_W, primary_axis_W)) < 0.95) {
+            return secondary_axis_W;
+        }
+    }
+
+    secondary_axis_W = ProjectToTangentUnit(subpatch.t2_W, subpatch.avg_normal_W);
+    if (secondary_axis_W.Length2() > 0.0 && std::abs(chrono::Vdot(secondary_axis_W, primary_axis_W)) < 0.98) {
+        return secondary_axis_W;
+    }
+
+    return chrono::ChVector3d(0.0, 0.0, 0.0);
+}
+
 int ChooseEmissionCount(const ReducedSupportAggregate& support,
                         const DenseSubpatch& subpatch,
                         double mean_allocated_load) {
@@ -407,6 +441,10 @@ int ChooseEmissionCount(const ReducedSupportAggregate& support,
     const double expand_score =
         1.40 * tangential_ratio + 0.85 * coverage_ratio + 0.30 * std::min(load_ratio, 2.5) +
         0.35 * slip_dominance;
+    if (expand_score > 1.45 && tangential_ratio > 0.38 && coverage_ratio > 0.22 && support.dense_members >= 6 &&
+        load_ratio > 0.9 && slip_dominance > 0.72) {
+        return 5;
+    }
     if (expand_score > 1.18 && tangential_ratio > 0.24 && coverage_ratio > 0.14 && support.dense_members >= 3 &&
         slip_dominance > 0.55) {
         return 3;
@@ -440,6 +478,22 @@ double ChooseStencilHalfExtent(const ReducedSupportAggregate& support,
         extent *= 0.82;
     }
     return extent;
+}
+
+double ChooseSecondaryStencilHalfExtent(const ReducedSupportAggregate& support,
+                                        const DenseSubpatch& subpatch,
+                                        int emission_count) {
+    if (emission_count < 5) {
+        return 0.0;
+    }
+
+    const chrono::ChVector3d tangential_force_W =
+        support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
+                                        subpatch.avg_normal_W;
+    const double total_force_norm = support.allocated_force_W.Length();
+    const double tangential_ratio = tangential_force_W.Length() / std::max(total_force_norm, 1.0e-12);
+    const double base_extent = std::min(0.18 * support.coverage_radius, 0.09 * subpatch.diameter);
+    return std::clamp((0.45 + 0.35 * tangential_ratio) * base_extent, 0.0, base_extent);
 }
 
 void BuildSupportBasis(const chrono::ChVector3d& n_W,
@@ -1496,6 +1550,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.n_W = support.n_W;
             reduced.v_rel_W = support.v_rel_W;
             reduced.stencil_axis_W = ChooseStencilAxis(support, subpatch);
+            reduced.stencil_axis_secondary_W =
+                ChooseSecondaryStencilAxis(support, subpatch, reduced.stencil_axis_W);
             reduced.phi = support.phi;
             reduced.phi_eff = support.phi_eff;
             reduced.area_weight = support.area_weight;
@@ -1503,6 +1559,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.allocated_load = support.allocated_load;
             reduced.allocated_force_W = support.allocated_force_W;
             reduced.stencil_half_extent = ChooseStencilHalfExtent(support, subpatch, reduced.emission_count);
+            reduced.stencil_half_extent_secondary =
+                ChooseSecondaryStencilHalfExtent(support, subpatch, reduced.emission_count);
             reduced.mu = mu_default;
             out_contacts.push_back(reduced);
         }

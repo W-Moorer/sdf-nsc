@@ -306,7 +306,7 @@ TEST(CompressedContactPipelineTest, PreservesPersistentIdAcrossSmallMotion) {
     EXPECT_EQ(support_ids_b, support_ids_a);
 }
 
-TEST(CompressedContactPipelineTest, UsesThreePointStencilForHighShearWideSupport) {
+TEST(CompressedContactPipelineTest, UsesExpandedStencilForHighShearWideSupport) {
     platform::backend::spcc::CompressedContactPipeline pipeline;
     platform::backend::spcc::CompressedContactConfig cfg;
     cfg.delta_on = 0.02;
@@ -348,6 +348,53 @@ TEST(CompressedContactPipelineTest, UsesThreePointStencilForHighShearWideSupport
     ASSERT_EQ(reduced.size(), 1u);
     EXPECT_EQ(stats.patch_count, 1u);
     EXPECT_EQ(stats.subpatch_count, 1u);
-    EXPECT_EQ(reduced.front().emission_count, 3);
+    EXPECT_GE(reduced.front().emission_count, 3);
     EXPECT_GT(reduced.front().stencil_half_extent, 0.0);
+}
+
+TEST(CompressedContactPipelineTest, UsesFivePointStencilForExtremeShearWideSupport) {
+    platform::backend::spcc::CompressedContactPipeline pipeline;
+    platform::backend::spcc::CompressedContactConfig cfg;
+    cfg.delta_on = 0.02;
+    cfg.delta_off = 0.03;
+    cfg.max_active_dense = 0;
+    cfg.patch_radius = 0.4;
+    cfg.normal_cos_min = 0.95;
+    cfg.max_patch_diameter = 0.5;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
+    cfg.max_reduced_points_per_patch = 1;
+    pipeline.Configure(cfg);
+
+    std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
+    for (int ix = -7; ix <= 7; ++ix) {
+        for (int iz = -7; iz <= 7; ++iz) {
+            platform::backend::spcc::DenseSurfaceSample sample;
+            sample.xi_slave_S = chrono::ChVector3d(0.018 * ix, -0.01, 0.018 * iz);
+            sample.normal_slave_S = chrono::ChVector3d(0.0, 1.0, 0.0);
+            sample.area_weight = 1.0;
+            samples.push_back(sample);
+        }
+    }
+    pipeline.SetSlaveSurfaceSamples(samples);
+
+    PlaneSDF sdf;
+    const auto master_state = MakeIdentityState();
+    auto slave_state = MakeIdentityState();
+    slave_state.v_com_W = chrono::ChVector3d(2.0, 0.0, 0.0);
+
+    std::vector<platform::backend::spcc::ReducedContactPoint> reduced;
+    platform::backend::spcc::CompressionStats stats;
+    pipeline.BuildReducedContacts(master_state, slave_state, sdf, 1.1, 1.0e-3, reduced, &stats);
+
+    ASSERT_EQ(reduced.size(), 1u);
+    EXPECT_EQ(stats.patch_count, 1u);
+    EXPECT_EQ(stats.subpatch_count, 1u);
+    EXPECT_EQ(reduced.front().emission_count, 5);
+    EXPECT_GT(reduced.front().stencil_half_extent, 0.0);
+    EXPECT_GT(reduced.front().stencil_half_extent_secondary, 0.0);
 }
