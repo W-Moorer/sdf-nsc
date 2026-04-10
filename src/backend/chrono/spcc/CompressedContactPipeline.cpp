@@ -158,6 +158,41 @@ chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, con
     return subpatch.t1_W;
 }
 
+int ChooseEmissionCount(const ReducedSupportAggregate& support,
+                        const DenseSubpatch& subpatch,
+                        double mean_allocated_load) {
+    const chrono::ChVector3d tangential_force_W =
+        support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
+                                        subpatch.avg_normal_W;
+    const double total_force_norm = support.allocated_force_W.Length();
+    const double tangential_ratio = tangential_force_W.Length() / std::max(total_force_norm, 1.0e-12);
+    const double coverage_ratio = support.coverage_radius / std::max(subpatch.diameter, 1.0e-9);
+    const double load_ratio = std::max(0.0, support.allocated_load) / std::max(mean_allocated_load, 1.0e-12);
+
+    if (tangential_ratio < 0.12 || coverage_ratio < 0.08 || load_ratio < 0.5) {
+        return 1;
+    }
+
+    const double expand_score = 1.5 * tangential_ratio + 0.75 * coverage_ratio + 0.25 * std::min(load_ratio, 2.0);
+    return (expand_score > 0.7) ? 2 : 1;
+}
+
+double ChooseStencilHalfExtent(const ReducedSupportAggregate& support,
+                               const DenseSubpatch& subpatch,
+                               int emission_count) {
+    if (emission_count <= 1) {
+        return 0.0;
+    }
+
+    const chrono::ChVector3d tangential_force_W =
+        support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
+                                        subpatch.avg_normal_W;
+    const double total_force_norm = support.allocated_force_W.Length();
+    const double tangential_ratio = tangential_force_W.Length() / std::max(total_force_norm, 1.0e-12);
+    const double tangent_scale = std::clamp(0.5 + tangential_ratio, 0.5, 1.0);
+    return tangent_scale * std::min(0.25 * support.coverage_radius, 0.12 * subpatch.diameter);
+}
+
 void BuildSupportBasis(const chrono::ChVector3d& n_W,
                        const chrono::ChVector3d& preferred_t1_W,
                        chrono::ChVector3d& t1_W,
@@ -1044,12 +1079,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.subpatch_id = support.subpatch_id;
             reduced.support_id = support_ids[support_index];
             reduced.dense_members = support.dense_members;
-            if (mean_allocated_load > 1.0e-12) {
-                reduced.emission_count = std::clamp(
-                    static_cast<int>(std::lround(std::max(0.0, support.allocated_load) / mean_allocated_load)), 1, 2);
-            } else {
-                reduced.emission_count = 1;
-            }
+            reduced.emission_count = ChooseEmissionCount(support, subpatch, mean_allocated_load);
             reduced.x_W = support.x_W;
             reduced.x_master_M = support.x_master_M;
             reduced.x_master_surface_W = support.x_master_surface_W;
@@ -1062,9 +1092,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.support_weight = support.support_weight;
             reduced.allocated_load = support.allocated_load;
             reduced.allocated_force_W = support.allocated_force_W;
-            reduced.stencil_half_extent =
-                (reduced.emission_count > 1) ? std::min(0.35 * support.coverage_radius, 0.15 * subpatch.diameter)
-                                             : 0.0;
+            reduced.stencil_half_extent = ChooseStencilHalfExtent(support, subpatch, reduced.emission_count);
             reduced.mu = mu_default;
             out_contacts.push_back(reduced);
         }
