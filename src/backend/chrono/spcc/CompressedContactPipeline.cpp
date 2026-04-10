@@ -73,6 +73,12 @@ struct PlanarStats2D {
     double weight_sum = 0.0;
 };
 
+struct DirectionalSupportTargets {
+    chrono::ChVector3d center_W;
+    std::vector<chrono::ChVector3d> directions_W;
+    std::vector<double> dense_support;
+};
+
 double Clamp01(double value) {
     return std::clamp(value, 0.0, 1.0);
 }
@@ -386,6 +392,124 @@ double ComputePlanarMomentObjective(const PlanarStats2D& dense_stats, const Plan
            (cov_duu * cov_duu + 2.0 * cov_duv * cov_duv + cov_dvv * cov_dvv);
 }
 
+DirectionalSupportTargets BuildDirectionalSupportTargets(const std::vector<DenseContactPoint>& dense_points,
+                                                         const DenseSubpatch& subpatch,
+                                                         int direction_count) {
+    DirectionalSupportTargets targets;
+    targets.center_W = SubpatchReferenceCenter(dense_points, subpatch);
+    const int dir_count = std::max(8, direction_count);
+    targets.directions_W.reserve(dir_count);
+    targets.dense_support.reserve(dir_count);
+
+    for (int dir_index = 0; dir_index < dir_count; ++dir_index) {
+        const double theta = (2.0 * std::acos(-1.0) * static_cast<double>(dir_index)) / static_cast<double>(dir_count);
+        const chrono::ChVector3d dir_W = std::cos(theta) * subpatch.t1_W + std::sin(theta) * subpatch.t2_W;
+        double support_value = -std::numeric_limits<double>::infinity();
+        for (const auto point_index : subpatch.members) {
+            support_value = std::max(support_value, chrono::Vdot(dense_points[point_index].x_W - targets.center_W, dir_W));
+        }
+        targets.directions_W.push_back(dir_W);
+        targets.dense_support.push_back(support_value);
+    }
+
+    return targets;
+}
+
+double ComputeCenterConeObjective(const DirectionalSupportTargets& targets,
+                                  const std::vector<chrono::ChVector3d>& centers_W,
+                                  double diameter) {
+    if (centers_W.empty() || targets.directions_W.empty()) {
+        return 0.0;
+    }
+
+    double sum_sq = 0.0;
+    double max_abs = 0.0;
+    for (std::size_t dir_index = 0; dir_index < targets.directions_W.size(); ++dir_index) {
+        double reduced_support = -std::numeric_limits<double>::infinity();
+        for (const auto& center_W : centers_W) {
+            reduced_support =
+                std::max(reduced_support, chrono::Vdot(center_W - targets.center_W, targets.directions_W[dir_index]));
+        }
+        const double error = (reduced_support - targets.dense_support[dir_index]) / std::max(diameter, 1.0e-9);
+        sum_sq += error * error;
+        max_abs = std::max(max_abs, std::abs(error));
+    }
+
+    const double rms = std::sqrt(sum_sq / static_cast<double>(targets.directions_W.size()));
+    return 0.65 * rms + 0.35 * max_abs;
+}
+
+double ComputeCenterSeparationPenalty(const DenseSubpatch& subpatch,
+                                      const std::vector<chrono::ChVector3d>& centers_W) {
+    if (centers_W.size() <= 1) {
+        return 0.0;
+    }
+
+    const double min_target = 0.12 * std::max(subpatch.diameter, 1.0e-6);
+    double penalty = 0.0;
+    std::size_t pair_count = 0;
+    for (std::size_t i = 0; i < centers_W.size(); ++i) {
+        for (std::size_t j = i + 1; j < centers_W.size(); ++j) {
+            const double distance = (centers_W[i] - centers_W[j]).Length();
+            if (distance < min_target) {
+                const double deficit = (min_target - distance) / min_target;
+                penalty += deficit * deficit;
+            }
+            ++pair_count;
+        }
+    }
+    if (pair_count == 0) {
+        return 0.0;
+    }
+    return penalty / static_cast<double>(pair_count);
+}
+
+double ComputeSupportGeometryObjective(const PlanarStats2D& dense_stats,
+                                       const PlanarStats2D& support_stats,
+                                       const DirectionalSupportTargets& targets,
+                                       const DenseSubpatch& subpatch,
+                                       const std::vector<chrono::ChVector3d>& centers_W) {
+    const double cone_objective = ComputeCenterConeObjective(targets, centers_W, subpatch.diameter);
+    const double moment_objective = ComputePlanarMomentObjective(dense_stats, support_stats);
+    const double separation_penalty = ComputeCenterSeparationPenalty(subpatch, centers_W);
+    return 2.75 * cone_objective + 0.55 * moment_objective + 0.20 * separation_penalty;
+}
+
+void ApplyConeDrivenCenterUpdate(const DirectionalSupportTargets& targets,
+                                 const DenseSubpatch& subpatch,
+                                 double blend,
+                                 std::vector<chrono::ChVector3d>& centers_W) {
+    if (!(blend > 0.0) || centers_W.size() <= 1 || targets.directions_W.empty()) {
+        return;
+    }
+
+    std::vector<chrono::ChVector3d> deltas_W(centers_W.size(), chrono::ChVector3d(0.0, 0.0, 0.0));
+    std::vector<double> weights(centers_W.size(), 0.0);
+    for (std::size_t dir_index = 0; dir_index < targets.directions_W.size(); ++dir_index) {
+        std::size_t best_center = 0;
+        double best_projection = -std::numeric_limits<double>::infinity();
+        for (std::size_t center_index = 0; center_index < centers_W.size(); ++center_index) {
+            const double projection =
+                chrono::Vdot(centers_W[center_index] - targets.center_W, targets.directions_W[dir_index]);
+            if (projection > best_projection) {
+                best_projection = projection;
+                best_center = center_index;
+            }
+        }
+
+        const double support_error = targets.dense_support[dir_index] - best_projection;
+        deltas_W[best_center] += support_error * targets.directions_W[dir_index];
+        weights[best_center] += 1.0;
+    }
+
+    for (std::size_t center_index = 0; center_index < centers_W.size(); ++center_index) {
+        if (!(weights[center_index] > 0.0)) {
+            continue;
+        }
+        centers_W[center_index] += (blend / weights[center_index]) * deltas_W[center_index];
+    }
+}
+
 void ComputeSubpatchBoundsUV(const std::vector<DenseContactPoint>& dense_points,
                              const DenseSubpatch& subpatch,
                              double& min_u,
@@ -443,12 +567,14 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
 
     auto assignments = AssignDensePointsToCenters(dense_points, subpatch, centers_W);
     const auto dense_stats = ComputeDensePlanarStats(dense_points, subpatch);
+    const auto cone_targets = BuildDirectionalSupportTargets(dense_points, subpatch, cfg.cone_direction_count);
     if (!(dense_stats.weight_sum > 1.0e-12)) {
         return;
     }
     const auto original_centers_W = centers_W;
     const auto original_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
-    const double original_objective = ComputePlanarMomentObjective(dense_stats, original_stats);
+    const double original_objective =
+        ComputeSupportGeometryObjective(dense_stats, original_stats, cone_targets, subpatch, centers_W);
 
     double min_u = 0.0;
     double max_u = 0.0;
@@ -469,8 +595,10 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
         const double support_std_v = std::sqrt(std::max(support_stats.cov_vv, 1.0e-12));
         const double scale_u = ClampScale(dense_std_u / support_std_u, 0.65, 1.65);
         const double scale_v = ClampScale(dense_std_v / support_std_v, 0.65, 1.65);
-        const double base_blend = has_temporal_history ? 0.18 : ((centers_W.size() <= 2) ? 0.55 : 0.38);
-        const double blend = motion_gate * base_blend;
+        const double cone_blend = motion_gate * (has_temporal_history ? 0.10 : ((centers_W.size() <= 2) ? 0.28 : 0.22));
+        const double moment_blend = motion_gate * (has_temporal_history ? 0.06 : ((centers_W.size() <= 2) ? 0.18 : 0.14));
+
+        ApplyConeDrivenCenterUpdate(cone_targets, subpatch, cone_blend, centers_W);
 
         for (auto& center_W : centers_W) {
             double u = 0.0;
@@ -478,8 +606,8 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
             ProjectToSubpatchUV(subpatch, center_W, u, v);
             const double target_u = dense_stats.mean_u + scale_u * (u - support_stats.mean_u);
             const double target_v = dense_stats.mean_v + scale_v * (v - support_stats.mean_v);
-            const double blended_u = (1.0 - blend) * u + blend * target_u;
-            const double blended_v = (1.0 - blend) * v + blend * target_v;
+            const double blended_u = (1.0 - moment_blend) * u + moment_blend * target_u;
+            const double blended_v = (1.0 - moment_blend) * v + moment_blend * target_v;
             center_W = LiftSubpatchUV(subpatch, std::clamp(blended_u, min_u, max_u),
                                       std::clamp(blended_v, min_v, max_v));
         }
@@ -488,7 +616,8 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
     }
 
     const auto optimized_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
-    const double optimized_objective = ComputePlanarMomentObjective(dense_stats, optimized_stats);
+    const double optimized_objective =
+        ComputeSupportGeometryObjective(dense_stats, optimized_stats, cone_targets, subpatch, centers_W);
     if (!(optimized_objective < original_objective)) {
         centers_W = original_centers_W;
     }
