@@ -188,6 +188,46 @@
 
 基于上述观察，正文中应把这些结果定位为\textbf{原型阶段的桥接验证与误差归因}，而不是最终有效性的定论。它们一方面支持继续沿“wrench-preserving + temporal coherence”路线推进，另一方面也直接说明了下一步必须补足真正的多 subpatch 自适应细分、局部 dense 微求解、reduced force allocation 以及更强的时序冲量一致性设计。
 
+\subsection{当前原型结果：基线与消融}
+
+在当前代码实现中，我们进一步把基线与消融验证接入了统一的 `variant` 管线，并在同一组静态场景与简单动力学场景上比较以下版本：完整方法（full）、固定 4 点的简化流形（fixed4）、不做 subpatch 的单 patch 版本（single\_patch），以及去掉 dense micro-solver、去掉 $e_{\mathcal{C}}$、去掉 sentinel、去掉 impulse transport、去掉 reinjection-aware acceptance 的多个消融版本。这样做的目的不是追求单一场景上的绝对最优值，而是识别本文理论中的哪些模块已经被实验显式支撑，哪些模块仍然没有解决最后的动态误差。
+
+图~\ref{fig:variant_dynamics} 给出各个 variant 相对于完整方法的动态峰值误差倍率，其中蓝色表示优于 full，红色表示劣于 full。表~\ref{tab:variant_static_summary} 汇总静态场景结果，表~\ref{tab:variant_dynamic_summary} 汇总两个简单动力学场景的峰值误差。需要说明的是，`no\_sentinel` 关闭了 sentinel 监测，因此其静态 check 项按构造即不再与 full 的判据完全可比，表中记为 `n/a`。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/generated/compressed_contact_variant_dynamics.pdf}
+    \caption{基线与消融版本在简单动力学验证中的峰值误差倍率热图。每个单元格显示相对 full 的倍率，蓝色表示误差下降，红色表示误差上升。两条竖向面板分别对应 `tilted\_plate\_impact` 和 `tilted\_plate\_slide`。该图用于快速识别哪些理论模块对冲量、角速度和能量漂移最敏感。}
+    \label{fig:variant_dynamics}
+\end{figure}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \input{sections/generated/compressed_contact_variant_static_table.tex}
+    \caption{静态场景下的基线与消融汇总。表中给出静态 check、平均压缩比以及三个最关键的静态误差指标。}
+    \label{tab:variant_static_summary}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \input{sections/generated/compressed_contact_variant_dynamic_table.tex}
+    \caption{简单动力学场景下的基线与消融峰值误差汇总。该表重点比较 impact 与 slide 两类场景中的角速度误差与线冲量误差。}
+    \label{tab:variant_dynamic_summary}
+\end{table}
+
+\paragraph{结果解读}
+这些结果首先说明，\textbf{完整方法是当前最稳的整体版本}。在静态场景中，full 通过了全部五个场景的 check，并在曲面 `cylinder\_band` 场景上把最大 $\varepsilon_M$、$\varepsilon_{\mathrm{CoP}}$ 和 $\varepsilon_g$ 控制在 $10^{-5}$ 到 $10^{-4}$ 量级；相对地，fixed4 直接在 `tilted\_square`、`dual\_patch` 和 `cylinder\_band` 上失效，而 single\_patch 虽然在这组静态场景中仍可通过，但其平均压缩比明显更低，说明它依靠更粗糙的表示换取了表面上的静态可行性，并没有保住动力学表现。
+
+其次，\textbf{subpatch 与 dense micro-solver 是当前最明确被实验支撑的两个理论块}。single\_patch 在 `tilted\_plate\_impact` 中把最大角速度误差推高到 $24.228$，明显劣于 full 的 $16.847$；去掉 dense micro-solver 后，同一场景的最大角速度误差进一步上升到 $28.892$。这说明本文提出的“多 subpatch + dense micro-reference”并不是装饰性模块，而是影响接触建立期旋转响应的关键件。
+
+再次，\textbf{$e_{\mathcal{C}}$ 和 impulse transport 也有清晰作用，但作用方式不同}。去掉 $e_{\mathcal{C}}$ 会显著拉坏 impact 场景中的角速度与角冲量误差，表明 support-function / cone 目标确实在帮助约束 reduced support 的局部可行域；去掉 impulse transport 则主要在 slide 场景里恶化轨迹、速度与能量漂移，说明时序冲量传输更偏向改善路径依赖误差，而不是单步静态几何误差。
+
+同时，\textbf{当前这组平板场景对 sentinel 与 reinjection acceptance 的敏感性较弱}。关闭 sentinel 或关闭 reinjection-aware acceptance 后，动态图上的峰值指标几乎与 full 重合；这并不意味着这两个模块无效，而更可能意味着当前两个动态场景还没有充分激发内部漏穿透或 reinjection acceptance 的差异。换言之，这两项仍需要在更复杂的曲面接触、长条形接触和多 patch 真正切换的场景里继续验证。
+
+最后，\textbf{剩余主误差已经收敛到求解器侧的切向线冲量表达问题}。从表~\ref{tab:variant_dynamic_summary} 可以看到，slide 场景的最大线冲量误差在所有 variant 中几乎都停留在 $0.2803$ 附近；这说明目前的顽固误差不再主要来自是否使用 dense micro-solver、是否保留 $e_{\mathcal{C}}$、是否做 impulse transport，而更像是 reduced support 在重新离散成 Chrono NSC 点接触时，对切向线冲量可行域的表达能力仍然不足。也正因为如此，当前基线与消融结果一方面支持本文的大部分方法骨架，另一方面也精确定位了论文最终尚未闭合的那一层。
+
 \subsection{预期结果与讨论重点}
 
 本文预期结果包括：

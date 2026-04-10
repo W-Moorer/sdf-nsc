@@ -93,9 +93,11 @@ def load_dynamic_rows(path: Path) -> Dict[str, Dict[str, np.ndarray]]:
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
+            if "variant" in row and row["variant"] != "full":
+                continue
             scenario = row["scenario"]
             for key, value in row.items():
-                if key == "scenario":
+                if key in {"scenario", "variant"}:
                     continue
                 rows_by_scenario[scenario][key].append(float(value))
 
