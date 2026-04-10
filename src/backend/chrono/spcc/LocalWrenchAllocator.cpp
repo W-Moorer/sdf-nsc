@@ -14,6 +14,8 @@ namespace {
 constexpr int kFrictionPyramidEdges = 4;
 constexpr double kSlipVelocityScale = 1.0e-3;
 constexpr double kNormalApproachVelocityScale = 1.0;
+constexpr double kDenseMicroWrenchWeight = 0.0;
+constexpr double kDenseMicroRegularization = 1.0e-8;
 
 struct RayColumn {
     std::size_t support_index = 0;
@@ -34,6 +36,15 @@ bool RefineActiveRayWeights(const std::vector<RayColumn>& rays,
                            double regularization,
                            std::vector<double>& io_ray_weights,
                            double& io_objective);
+
+bool SolveDenseMicroRayQP(const std::vector<RayColumn>& rays,
+                          const std::vector<std::size_t>& support_offsets,
+                          const std::vector<chrono::ChVector3d>& desired_forces_W,
+                          const std::vector<double>& initial_ray_weights,
+                          double wrench_weight,
+                          double regularization,
+                          std::vector<double>& out_ray_weights,
+                          double& out_objective);
 
 double ProxyLoad(const DenseContactPoint& point) {
     return std::max(0.0, -point.phi_eff) * std::max(0.0, point.area_weight);
@@ -433,6 +444,161 @@ bool RefineActiveRayWeights(const std::vector<RayColumn>& rays,
     return false;
 }
 
+double EvaluateDenseMicroObjective(const std::vector<RayColumn>& rays,
+                                   const std::vector<std::size_t>& support_offsets,
+                                   const std::vector<chrono::ChVector3d>& desired_forces_W,
+                                   const std::vector<double>& initial_ray_weights,
+                                   double wrench_weight,
+                                   double regularization,
+                                   const std::vector<double>& ray_weights) {
+    std::vector<chrono::ChVector3d> support_forces_W(desired_forces_W.size(), chrono::ChVector3d(0.0, 0.0, 0.0));
+    std::vector<double> wrench_residual(6, 0.0);
+    for (std::size_t ray_index = 0; ray_index < rays.size(); ++ray_index) {
+        const double weight = ray_weights[ray_index];
+        if (!(std::abs(weight) > 0.0)) {
+            continue;
+        }
+        support_forces_W[rays[ray_index].support_index] += weight * rays[ray_index].force_W;
+        for (std::size_t row = 0; row < wrench_residual.size(); ++row) {
+            wrench_residual[row] += weight * rays[ray_index].column[row];
+        }
+    }
+
+    double objective = 0.0;
+    for (std::size_t support_index = 0; support_index < desired_forces_W.size(); ++support_index) {
+        const chrono::ChVector3d residual_W = support_forces_W[support_index] - desired_forces_W[support_index];
+        objective += residual_W.Length2();
+    }
+    if (wrench_weight > 0.0) {
+        objective += wrench_weight * DotVector(wrench_residual, wrench_residual);
+    }
+    if (regularization > 0.0) {
+        for (std::size_t i = 0; i < ray_weights.size(); ++i) {
+            const double delta = ray_weights[i] - initial_ray_weights[i];
+            objective += regularization * delta * delta;
+        }
+    }
+    return 0.5 * objective;
+}
+
+double EstimateDenseMicroLipschitz(const std::vector<RayColumn>& rays,
+                                   const std::vector<std::size_t>& support_offsets,
+                                   double wrench_weight,
+                                   double regularization) {
+    double max_support_trace = 0.0;
+    for (std::size_t support_index = 0; support_index + 1 < support_offsets.size(); ++support_index) {
+        double support_trace = 0.0;
+        for (std::size_t ray_index = support_offsets[support_index];
+             ray_index < support_offsets[support_index + 1];
+             ++ray_index) {
+            support_trace += rays[ray_index].force_W.Length2();
+        }
+        max_support_trace = std::max(max_support_trace, support_trace);
+    }
+
+    double wrench_trace = 0.0;
+    for (const auto& ray : rays) {
+        wrench_trace += DotVector(ray.column, ray.column);
+    }
+    return std::max(1.0e-6, max_support_trace + wrench_weight * wrench_trace + regularization);
+}
+
+void ComputeDenseMicroGradient(const std::vector<RayColumn>& rays,
+                               const std::vector<std::size_t>& support_offsets,
+                               const std::vector<chrono::ChVector3d>& desired_forces_W,
+                               const std::vector<double>& initial_ray_weights,
+                               double wrench_weight,
+                               double regularization,
+                               const std::vector<double>& ray_weights,
+                               std::vector<double>& out_gradient) {
+    std::vector<chrono::ChVector3d> support_residuals_W(desired_forces_W.size(),
+                                                        chrono::ChVector3d(0.0, 0.0, 0.0));
+    std::vector<double> wrench_residual(6, 0.0);
+    for (std::size_t ray_index = 0; ray_index < rays.size(); ++ray_index) {
+        const double weight = ray_weights[ray_index];
+        if (!(std::abs(weight) > 0.0)) {
+            continue;
+        }
+        support_residuals_W[rays[ray_index].support_index] += weight * rays[ray_index].force_W;
+        for (std::size_t row = 0; row < wrench_residual.size(); ++row) {
+            wrench_residual[row] += weight * rays[ray_index].column[row];
+        }
+    }
+    for (std::size_t support_index = 0; support_index < desired_forces_W.size(); ++support_index) {
+        support_residuals_W[support_index] -= desired_forces_W[support_index];
+    }
+
+    out_gradient.assign(ray_weights.size(), 0.0);
+    for (std::size_t ray_index = 0; ray_index < rays.size(); ++ray_index) {
+        double value = chrono::Vdot(rays[ray_index].force_W, support_residuals_W[rays[ray_index].support_index]);
+        if (wrench_weight > 0.0) {
+            value += wrench_weight * DotVector(rays[ray_index].column, wrench_residual);
+        }
+        if (regularization > 0.0) {
+            value += regularization * (ray_weights[ray_index] - initial_ray_weights[ray_index]);
+        }
+        out_gradient[ray_index] = value;
+    }
+}
+
+bool SolveDenseMicroRayQP(const std::vector<RayColumn>& rays,
+                          const std::vector<std::size_t>& support_offsets,
+                          const std::vector<chrono::ChVector3d>& desired_forces_W,
+                          const std::vector<double>& initial_ray_weights,
+                          double wrench_weight,
+                          double regularization,
+                          std::vector<double>& out_ray_weights,
+                          double& out_objective) {
+    const std::size_t n = rays.size();
+    out_ray_weights.assign(n, 0.0);
+    if (n == 0) {
+        out_objective = 0.0;
+        return true;
+    }
+
+    std::vector<double> x(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        x[i] = std::max(0.0, initial_ray_weights[i]);
+    }
+    std::vector<double> y = x;
+    std::vector<double> x_next(n, 0.0);
+    std::vector<double> gradient;
+    const double step = 1.0 / EstimateDenseMicroLipschitz(rays, support_offsets, wrench_weight, regularization);
+    double t = 1.0;
+
+    constexpr int kMaxIterations = 2000;
+    constexpr double kTolerance = 1.0e-10;
+    for (int iter = 0; iter < kMaxIterations; ++iter) {
+        ComputeDenseMicroGradient(rays, support_offsets, desired_forces_W, initial_ray_weights, wrench_weight,
+                                  regularization, y, gradient);
+
+        double delta_sq = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            x_next[i] = std::max(0.0, y[i] - step * gradient[i]);
+            const double delta = x_next[i] - x[i];
+            delta_sq += delta * delta;
+        }
+
+        if (delta_sq <= kTolerance * kTolerance) {
+            x = x_next;
+            break;
+        }
+
+        const double t_next = 0.5 * (1.0 + std::sqrt(1.0 + 4.0 * t * t));
+        const double momentum = (t - 1.0) / t_next;
+        for (std::size_t i = 0; i < n; ++i) {
+            y[i] = x_next[i] + momentum * (x_next[i] - x[i]);
+        }
+        x.swap(x_next);
+        t = t_next;
+    }
+
+    out_ray_weights = x;
+    out_objective = EvaluateDenseMicroObjective(rays, support_offsets, desired_forces_W, initial_ray_weights,
+                                                wrench_weight, regularization, out_ray_weights);
+    return true;
+}
+
 chrono::ChVector3d BuildTangentialProxyForce(const DenseContactPoint& point, double load, double mu_default) {
     if (!(mu_default > 0.0) || !(load > 0.0)) {
         return chrono::ChVector3d(0.0, 0.0, 0.0);
@@ -461,7 +627,9 @@ void LocalWrenchAllocator::BuildDenseMicroReference(const std::vector<DenseConta
     out_result.reference.origin_W = origin_W;
 
     std::vector<SupportWrenchPoint> dense_supports;
+    std::vector<chrono::ChVector3d> desired_forces_W;
     dense_supports.reserve(member_indices.size());
+    desired_forces_W.reserve(member_indices.size());
 
     for (const auto member_index : member_indices) {
         const auto& point = dense_points[member_index];
@@ -485,10 +653,65 @@ void LocalWrenchAllocator::BuildDenseMicroReference(const std::vector<DenseConta
         support.initial_load = load;
         support.initial_force_W = contact_force_W;
         dense_supports.push_back(support);
+        desired_forces_W.push_back(contact_force_W);
     }
 
     if (dense_supports.empty()) {
         return;
+    }
+
+    const double moment_scale = ComputeMomentScale(dense_supports, out_result.reference);
+    std::vector<RayColumn> rays;
+    std::vector<std::size_t> support_offsets;
+    std::vector<double> initial_ray_weights;
+    support_offsets.reserve(dense_supports.size() + 1);
+    support_offsets.push_back(0);
+    for (std::size_t support_index = 0; support_index < dense_supports.size(); ++support_index) {
+        const auto ray_directions = BuildRayDirections(dense_supports[support_index]);
+        const auto support_initial_ray_weights = BuildInitialRayWeights(ray_directions, dense_supports[support_index]);
+        for (const auto& ray_force_W : ray_directions) {
+            RayColumn ray;
+            ray.support_index = support_index;
+            ray.force_W = ray_force_W;
+            ray.column = BuildScaledColumn(dense_supports[support_index].x_W, ray_force_W, origin_W, moment_scale);
+            rays.push_back(std::move(ray));
+        }
+        initial_ray_weights.insert(initial_ray_weights.end(), support_initial_ray_weights.begin(),
+                                   support_initial_ray_weights.end());
+        if (support_initial_ray_weights.size() != ray_directions.size()) {
+            const double initial_load = std::max(0.0, dense_supports[support_index].initial_load);
+            const double initial_ray_weight = initial_load / static_cast<double>(ray_directions.size());
+            for (std::size_t ray_index = support_initial_ray_weights.size(); ray_index < ray_directions.size();
+                 ++ray_index) {
+                initial_ray_weights.push_back(initial_ray_weight);
+            }
+        }
+        support_offsets.push_back(rays.size());
+    }
+
+    std::vector<double> dense_ray_weights;
+    double dense_objective = 0.0;
+    const bool solved = SolveDenseMicroRayQP(rays, support_offsets, desired_forces_W, initial_ray_weights,
+                                             kDenseMicroWrenchWeight, kDenseMicroRegularization,
+                                             dense_ray_weights, dense_objective);
+    if (solved && dense_ray_weights.size() == rays.size()) {
+        ReferenceWrench reference;
+        reference.origin_W = origin_W;
+        reference.force_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+        reference.moment_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+        reference.total_load = 0.0;
+        for (std::size_t ray_index = 0; ray_index < rays.size(); ++ray_index) {
+            const double weight = dense_ray_weights[ray_index];
+            if (!(weight > 0.0)) {
+                continue;
+            }
+            const auto& ray = rays[ray_index];
+            const chrono::ChVector3d force_W = weight * ray.force_W;
+            reference.force_W += force_W;
+            reference.moment_W += chrono::Vcross(dense_supports[ray.support_index].x_W - origin_W, force_W);
+            reference.total_load += weight;
+        }
+        out_result.reference = reference;
     }
 
     WrenchAllocationResult projected_result;

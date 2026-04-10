@@ -5,6 +5,8 @@
 namespace {
 
 using platform::backend::spcc::LocalWrenchAllocator;
+using platform::backend::spcc::DenseContactPoint;
+using platform::backend::spcc::DenseMicroReferenceResult;
 using platform::backend::spcc::ReferenceWrench;
 using platform::backend::spcc::SupportWrenchPoint;
 using platform::backend::spcc::WrenchAllocationResult;
@@ -68,6 +70,23 @@ TEST(LocalWrenchAllocatorTest, MatchesTangentialReferenceInsideFrictionPyramid) 
     EXPECT_NEAR(result.forces_W[0].z(), 0.0, 1.0e-6);
     EXPECT_LT(result.force_residual, 1.0e-8);
     EXPECT_LT(result.moment_residual, 1.0e-8);
+}
+
+TEST(LocalWrenchAllocatorTest, DenseMicroReferenceOpposesApproachAndSlip) {
+    std::vector<DenseContactPoint> dense_points(1);
+    dense_points[0].x_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+    dense_points[0].n_W = chrono::ChVector3d(0.0, 1.0, 0.0);
+    dense_points[0].v_rel_W = chrono::ChVector3d(1.0, -2.0, 0.0);
+    dense_points[0].phi_eff = -1.0e-3;
+    dense_points[0].area_weight = 2.0e-3;
+
+    DenseMicroReferenceResult result;
+    LocalWrenchAllocator::BuildDenseMicroReference(dense_points, {0}, chrono::ChVector3d(0.0, 0.0, 0.0), 0.5, 1.0e-3,
+                                                   result);
+
+    EXPECT_TRUE(result.feasible);
+    EXPECT_GT(result.reference.force_W.y(), 0.0);
+    EXPECT_LT(result.reference.force_W.x(), 0.0);
 }
 
 }  // namespace
