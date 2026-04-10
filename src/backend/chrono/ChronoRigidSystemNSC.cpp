@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <algorithm>
+#include <chrono>
 
 #if defined(SPCC_ENABLE_VDB)
 #include "platform/backend/spcc/CompressedContactPipeline.h"
@@ -71,6 +72,7 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
     cfg.delta_on = GetScopedEnvDouble(env_prefix, "DELTA_ON", cfg.delta_on);
     cfg.delta_off = GetScopedEnvDouble(env_prefix, "DELTA_OFF", cfg.delta_off);
     cfg.max_active_dense = GetScopedEnvInt(env_prefix, "MAX_ACTIVE_DENSE", cfg.max_active_dense);
+    cfg.max_exact_candidates = GetScopedEnvInt(env_prefix, "MAX_EXACT_CANDIDATES", cfg.max_exact_candidates);
     cfg.bvh_leaf_size = GetScopedEnvInt(env_prefix, "BVH_LEAF_SIZE", cfg.bvh_leaf_size);
     cfg.bvh_query_margin = GetScopedEnvDouble(env_prefix, "BVH_QUERY_MARGIN", cfg.bvh_query_margin);
     cfg.bvh_velocity_bound_scale =
@@ -123,6 +125,10 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
         env_prefix, "REINJECTION_TANGENTIAL_MOMENT_WEIGHT", cfg.reinjection_tangential_moment_weight);
     cfg.reinjection_seed_regularization =
         GetScopedEnvDouble(env_prefix, "REINJECTION_SEED_REGULARIZATION", cfg.reinjection_seed_regularization);
+    cfg.dense_micro_refresh_steps =
+        std::max(1, GetScopedEnvInt(env_prefix, "DENSE_MICRO_REFRESH_STEPS", cfg.dense_micro_refresh_steps));
+    cfg.support_optimize_refresh_steps =
+        std::max(1, GetScopedEnvInt(env_prefix, "SUPPORT_OPTIMIZE_REFRESH_STEPS", cfg.support_optimize_refresh_steps));
     cfg.tangential_heterogeneity_threshold =
         GetScopedEnvDouble(env_prefix, "TANGENTIAL_HETEROGENEITY_THRESHOLD", cfg.tangential_heterogeneity_threshold);
     cfg.tangential_emission_threshold =
@@ -393,6 +399,15 @@ public:
     bool m_use_analytic_sphere_toi_contact;
     double m_master_sphere_radius;
     double m_slave_sphere_radius;
+    std::size_t m_profile_calls = 0;
+    double m_profile_total_ms = 0.0;
+    double m_profile_dense_ms = 0.0;
+    double m_profile_patch_ms = 0.0;
+    double m_profile_subpatch_ms = 0.0;
+    double m_profile_dense_micro_ms = 0.0;
+    double m_profile_support_ms = 0.0;
+    double m_profile_allocation_ms = 0.0;
+    double m_profile_reinjection_ms = 0.0;
 
     SDFCollisionCallback(std::shared_ptr<chrono::ChBody> master,
                          std::shared_ptr<chrono::ChBody> slave,
@@ -526,8 +541,10 @@ public:
         const double friction = static_cast<double>(
             std::static_pointer_cast<chrono::ChContactMaterialNSC>(m_material)->GetSlidingFriction());
         m_pipeline->SyncTemporalWarmStart(m_emitted_contacts);
+        const auto profile_begin = std::chrono::steady_clock::now();
         m_pipeline->BuildReducedContacts(master_state, slave_state, *m_sdf, friction, sys->GetStep(),
                                          reduced_contacts, &stats);
+        const auto profile_end = std::chrono::steady_clock::now();
         m_emitted_contacts = std::move(reduced_contacts);
 
         int penetration_count = 0;
@@ -539,7 +556,19 @@ public:
         if (m_reduced_contacts_out) {
             *m_reduced_contacts_out = m_emitted_contacts;
         }
-        
+
+        const double callback_ms =
+            std::chrono::duration<double, std::milli>(profile_end - profile_begin).count();
+        m_profile_calls += 1;
+        m_profile_total_ms += callback_ms;
+        m_profile_dense_ms += stats.dense_cloud_ms;
+        m_profile_patch_ms += stats.patch_ms;
+        m_profile_subpatch_ms += stats.subpatch_ms;
+        m_profile_dense_micro_ms += stats.dense_micro_ms;
+        m_profile_support_ms += stats.support_build_ms;
+        m_profile_allocation_ms += stats.allocation_ms;
+        m_profile_reinjection_ms += stats.reinjection_ms;
+
         static int step_id = 0;
         if (step_id % 10 == 0) {
              std::cout << "[SDF] Step " << step_id << " reduced contacts: " << penetration_count;
@@ -547,11 +576,21 @@ public:
                  std::cout << " dense=" << stats.dense_count
                            << " total=" << stats.total_samples
                            << " candidates=" << stats.candidate_count
+                           << " phiPref=" << stats.phi_prefilter_count
+                           << " exact=" << stats.exact_count
                            << " reduced=" << stats.reduced_count
                            << " patches=" << stats.patch_count
                            << " bvhVisited=" << stats.bvh_nodes_visited
                            << " bvhPrunedObb=" << stats.bvh_nodes_pruned_obb
                            << " bvhPrunedSdf=" << stats.bvh_nodes_pruned_sdf
+                           << " ms=" << stats.total_pipeline_ms
+                           << " denseMs=" << stats.dense_cloud_ms
+                           << " patchMs=" << stats.patch_ms
+                           << " subMs=" << stats.subpatch_ms
+                           << " microMs=" << stats.dense_micro_ms
+                           << " supportMs=" << stats.support_build_ms
+                           << " allocMs=" << stats.allocation_ms
+                           << " reinjMs=" << stats.reinjection_ms
                            << " epsF=" << stats.epsilon_F
                            << " epsM=" << stats.epsilon_M
                            << " epsCoP=" << stats.epsilon_CoP
@@ -560,6 +599,23 @@ public:
              std::cout << std::endl;
         }
         step_id++;
+    }
+
+    ~SDFCollisionCallback() override {
+        if (m_profile_calls == 0 || !(GetEnvDouble("SPCC_DEBUG_CONTACT_STATS", 0.0) > 0.5)) {
+            return;
+        }
+        const double inv_calls = 1.0 / static_cast<double>(m_profile_calls);
+        std::cout << "[SDF][AVG] calls=" << m_profile_calls
+                  << " totalMs=" << (m_profile_total_ms * inv_calls)
+                  << " denseMs=" << (m_profile_dense_ms * inv_calls)
+                  << " patchMs=" << (m_profile_patch_ms * inv_calls)
+                  << " subMs=" << (m_profile_subpatch_ms * inv_calls)
+                  << " microMs=" << (m_profile_dense_micro_ms * inv_calls)
+                  << " supportMs=" << (m_profile_support_ms * inv_calls)
+                  << " allocMs=" << (m_profile_allocation_ms * inv_calls)
+                  << " reinjMs=" << (m_profile_reinjection_ms * inv_calls)
+                  << std::endl;
     }
 };
 
@@ -877,7 +933,8 @@ void ChronoRigidSystemNSC::InitializeCamCase(
 
 #if defined(SPCC_ENABLE_VDB)
     if (use_vdb) {
-        m_dynamics_substeps = std::max(1, GetScopedEnvInt(env_prefix, "DYNAMICS_SUBSTEPS", dynamics_substeps));
+        const int default_sdf_substeps = std::max(1, dynamics_substeps);
+        m_dynamics_substeps = std::max(1, GetScopedEnvInt(env_prefix, "DYNAMICS_SUBSTEPS", default_sdf_substeps));
         spcc::VDBSDFField::BuildOptions sdf_options;
         sdf_options.voxel_size = GetScopedEnvDouble(env_prefix, "VOXEL_SIZE", sdf_build_tuning.voxel_size);
         sdf_options.half_band_width_voxels =

@@ -14,6 +14,8 @@
     \item \textbf{solver-compatible}：最终输出仍为普通点接触，从而直接复用 Chrono NSC 的求解链路。
 \end{enumerate}
 
+上述四点刻画了本文的瞬时约化目标。然而，滑移主导场景的数值现象表明：仅保持某一时刻的合力、合力矩与 CoP 仍不足以保证下一时间步的速度更新一致。为此，本文在瞬时 wrench-preserving 框架之上，进一步引入\textbf{一步动力学一致性（one-step dynamic consistency）}：dense 接触、reduced support 以及 solver-facing reinjection 三者不仅要在瞬时 wrench 上保持等效，还应在目标 NSC 时间步推进下产生近似一致的广义冲量与广义速度更新。
+
 \subsection{问题定义}
 
 考虑两个刚体 $A$ 与 $B$，其几何分别由符号距离场 $\phi_A(x)$ 与 $\phi_B(x)$ 描述。对于任一候选接触对，在相对位姿给定时构造局部 gap 场 $g(x)$。在本文中，$g(x)$ 可由双 SDF 组合、单边表面采样或其他等价构造获得，其目标是给出局部非穿透约束的几何刻画。接触区域定义为
@@ -379,24 +381,268 @@ A = \sum_k a_k,
 
 这意味着 warm start 的传递对象不是逐点冲量值本身，而是对应的等效 wrench。
 
+\subsection{Dense 一步冲量模型}
+
+前述 dense 微求解给出了瞬时参考 wrench。为了把该参考量直接连接到目标求解器的一步时间推进，本文进一步在每个 dense subpatch 上定义一步冲量模型。设局部广义速度为
+\begin{equation}
+\nu =
+\begin{bmatrix}
+v \\
+\omega
+\end{bmatrix},
+\end{equation}
+时间步长为 $h$，并对每个 dense 积分点采用摩擦锥的多射线近似。记第 $k$ 个积分点的射线权重为 $\alpha_k \ge 0$，射线方向矩阵为 $R_k$，则一步接触冲量可写为
+\begin{equation}
+\Delta p_{\mathrm{dense}}
+=
+\sum_{k=1}^{N_q} G(x_k) \, h R_k \alpha_k
+=
+A_{\mathrm{dense}}\alpha.
+\end{equation}
+
+令 $J_{\mathrm{dense}}$ 为 dense 积分点的局部接触 Jacobian，$M$ 为刚体系统在当前构型下的广义质量矩阵，则一步局部相对速度的线性化更新满足
+\begin{equation}
+u^{+}
+\approx
+u^{-} + B_{\mathrm{dense}}\alpha,
+\qquad
+B_{\mathrm{dense}} = J_{\mathrm{dense}} M^{-1} J_{\mathrm{dense}}^{\top} R_{\mathrm{dense}}.
+\end{equation}
+同理，对局部 gap 预测写成
+\begin{equation}
+d^{+}
+\approx
+d^{-} + C_{\mathrm{dense}}\alpha,
+\end{equation}
+其中 $C_{\mathrm{dense}}$ 由法向运动预测与局部几何线性化给出。
+
+在摩擦锥多射线化与单边 gap 的活跃集线性化下，dense 一步微求解可统一写为
+\begin{equation}
+\min_{\alpha \ge 0}
+\;
+\frac{1}{2}\alpha^{\top} H_{\mathrm{dense}}\alpha
++
+g_{\mathrm{dense}}^{\top}\alpha,
+\label{eq:dense-micro-qp}
+\end{equation}
+其中
+\begin{equation}
+H_{\mathrm{dense}}
+=
+B_{\mathrm{dense}}^{\top}W_u B_{\mathrm{dense}}
++
+C_{\mathrm{dense}}^{\top}W_g C_{\mathrm{dense}}
++
+\rho_{\alpha} I,
+\end{equation}
+\begin{equation}
+g_{\mathrm{dense}}
+=
+B_{\mathrm{dense}}^{\top}W_u u^{-}
++
+C_{\mathrm{dense}}^{\top}W_g d^{-}
+-
+\rho_{\alpha}\alpha_{\mathrm{tr}},
+\end{equation}
+$W_u$ 与 $W_g$ 分别衡量局部速度与 gap 违反的代价，$\alpha_{\mathrm{tr}}$ 为上一时间步传输而来的局部冲量初值。求得最优解 $\alpha^\star$ 后，定义 dense 参考一步冲量为
+\begin{equation}
+\Delta p_{\ell r}^{\star}
+=
+A_{\mathrm{dense}}\alpha^\star.
+\end{equation}
+
+与前述瞬时参考 wrench 不同，$\Delta p_{\ell r}^{\star}$ 直接对应当前时间步中 dense subpatch 对刚体速度更新的最优局部冲量解释，因此它是后续 reduced solve 与 reinjection 的首要目标量。
+
+\subsection{Reduced 冲量集近似}
+
+对任意 subpatch $\Omega_{\ell r}$ 及其 reduced support set $Q_{\ell r}$，同样在每个 support 上采用摩擦锥射线近似。记 reduced 射线权重为 $\beta \ge 0$，则 reduced 一步冲量写为
+\begin{equation}
+\Delta p_{\mathrm{red}}
+=
+A_{\mathrm{red}}(Q_{\ell r})\beta.
+\end{equation}
+
+由此可定义 dense 与 reduced 的一步可行冲量集：
+\begin{equation}
+\mathcal{I}_{\mathrm{dense}}^{h}
+=
+\left\{
+A_{\mathrm{dense}}\alpha
+\;\middle|\;
+\alpha \ge 0
+\right\},
+\qquad
+\mathcal{I}_{\mathrm{red}}^{h}(Q_{\ell r})
+=
+\left\{
+A_{\mathrm{red}}(Q_{\ell r})\beta
+\;\middle|\;
+\beta \ge 0
+\right\}.
+\end{equation}
+
+于是，本文不再仅要求 $\mathcal{C}_{\mathrm{red}}$ 逼近 $\mathcal{C}_{\mathrm{dense}}$，还要求在一步时间尺度上，$\mathcal{I}_{\mathrm{red}}^{h}$ 对 $\mathcal{I}_{\mathrm{dense}}^{h}$ 的主要支撑方向保持一致。定义冲量支持函数
+\begin{equation}
+h_{\mathcal{I}}(s)
+=
+\sup_{\Delta p \in \mathcal{I}} s^{\top}\Delta p,
+\end{equation}
+则冲量锥误差写为
+\begin{equation}
+e_{\mathcal{I}}
+=
+\max_{s\in\mathcal{S}_{I}}
+\frac{|h_{\mathrm{dense}}^{I}(s)-h_{\mathrm{red}}^{I}(s)|}
+{h_{\mathrm{dense}}^{I}(s)+\varepsilon}.
+\end{equation}
+
+对应的 reduced 分配问题为
+\begin{equation}
+\min_{\beta \in \mathcal{K}_{\mu}}
+\;
+\frac{1}{2}
+\|W_p(A_{\mathrm{red}}\beta-\Delta p_{\ell r}^{\star})\|_2^2
++
+\frac{\rho_{\beta}}{2}\|\beta-\beta_{\mathrm{tr}}\|_2^2,
+\label{eq:reduced-impulse-qp}
+\end{equation}
+其中 $\beta_{\mathrm{tr}}$ 为由上一时间步传输而来的冲量种子。若采用高分辨率摩擦射线，则式~\eqref{eq:reduced-impulse-qp} 可看作对连续摩擦锥 SOCP 的多面体逼近；若保留圆锥约束，则其原始形式就是一个小规模 SOCP。该层的目标不再只是“拟合参考 wrench”，而是显式逼近 dense subpatch 的一步冲量可行域。
+
+\subsection{Solver-Facing Reinjection 优化}
+
+对目标 NSC 求解器而言，reduced support 并不能直接参与求解，而必须进一步转化为离散点接触集合。为此，本文显式定义 reinjection 映射
+\begin{equation}
+\mathcal{R}:
+\left(Q_{\ell r}, \beta\right)
+\mapsto
+\mathcal{Y}_{\ell r}
+=
+\{(y_s,n_s,\gamma_s)\}_{s=1}^{N_y},
+\end{equation}
+其中 $y_s$ 为 emitted slot 位置，$n_s$ 为 slot 法向，$\gamma_s$ 为 slot 冲量变量。
+
+与把 reinjection 当作简单几何模板不同，本文将其视作一个受约束的小规模优化问题：
+\begin{equation}
+\min_{\{y_s,n_s,\gamma_s\}}
+\;
+\|W_I(\Delta p_{\mathrm{emit}}-\Delta p_{\mathrm{red}})\|_2^2
++
+\|W_T(\tau_{\mathrm{emit}}-\tau_{\mathrm{red}})\|_2^2
++
+\chi E_g(\mathcal{Y}_{\ell r})
++
+\upsilon E_a(\mathcal{Y}_{\ell r}),
+\label{eq:reinjection-opt}
+\end{equation}
+其中
+\begin{equation}
+\Delta p_{\mathrm{emit}}
+=
+\sum_{s=1}^{N_y}\Psi(y_s,n_s)\gamma_s,
+\end{equation}
+$\tau_{\mathrm{emit}}$ 表示 reinjected 点接触在切向一阶与二阶矩意义下的冲量分布量，$E_g$ 用于惩罚 reinjection 后的内部 gap 违反，$E_a$ 用于惩罚不稳定的激活/关闭切换。约束包括
+\begin{equation}
+y_s \in \mathrm{conv}(Q_{\ell r}) \oplus \mathbb{B}(0,r_h),
+\qquad
+n_s \cdot \bar{n}_{\ell r} \ge \cos\theta_h,
+\qquad
+\gamma_s \in \mathcal{K}_{\mu}^{\mathrm{slot}}.
+\end{equation}
+
+式~\eqref{eq:reinjection-opt} 的意义在于：solver-facing reinjection 本身就是一个需要显式控制切向可行域损失的优化层，而不是 reduced support 到点接触的无损映射。它为后文的动态误差分析提供了独立的误差来源。
+
+\subsection{一步动力学一致性}
+
+设 dense 模型、reduced 模型以及 reinjected NSC 点接触在当前时间步得到的广义冲量分别为 $\Delta p_{\mathrm{dense}}^\star$、$\Delta p_{\mathrm{red}}^\star$ 与 $\Delta p_{\mathrm{emit}}^\star$，则其一步速度更新分别满足
+\begin{equation}
+\nu_{\mathrm{dense}}^{+}
+=
+\nu^{-} + M^{-1}\Delta p_{\mathrm{dense}}^\star,
+\qquad
+\nu_{\mathrm{emit}}^{+}
+=
+\nu^{-} + M^{-1}\Delta p_{\mathrm{emit}}^\star.
+\end{equation}
+
+由此可见，本文最终关心的不再只是瞬时 wrench 误差，而是一步广义速度误差
+\begin{equation}
+e_V
+=
+\frac{\|\nu_{\mathrm{emit}}^{+}-\nu_{\mathrm{dense}}^{+}\|_2}
+{\|\nu_{\mathrm{dense}}^{+}-\nu^{-}\|_2+\varepsilon}.
+\end{equation}
+
+\begin{proposition}
+若当前构型邻域内的质量矩阵 $M$ 有界且接触 Jacobian 关于状态局部 Lipschitz 连续，则存在常数 $c_M,c_R>0$，使得
+\begin{equation}
+\|\nu_{\mathrm{emit}}^{+}-\nu_{\mathrm{dense}}^{+}\|_2
+\le
+c_M
+\|\Delta p_{\mathrm{red}}^\star-\Delta p_{\mathrm{dense}}^\star\|_2
++
+c_R
+\|\Delta p_{\mathrm{emit}}^\star-\Delta p_{\mathrm{red}}^\star\|_2
++
+O(h^2).
+\end{equation}
+\end{proposition}
+
+该命题说明：一步速度更新误差可分解为两层。第一层来自 dense 到 reduced 的冲量近似误差；第二层来自 reduced 到 solver-facing reinjection 的再离散误差。当前实验中最顽固的滑移误差，正对应第二层在切向冲量可行域上的残余差距。
+
+\subsection{冲量一致性误差}
+
+为了把前述理论直接连接到实验与实现，本文在原有 $e_{\mathrm{plane}}$、$e_{\Sigma}$、$e_{\mathcal{C}}$、$e_g$、$e_w$、$e_{\mathrm{CoP}}$ 之外，再引入三类误差：
+\begin{equation}
+e_I
+=
+\frac{\|\Delta p_{\mathrm{red}}^\star-\Delta p_{\mathrm{dense}}^\star\|_2}
+{\|\Delta p_{\mathrm{dense}}^\star\|_2+\varepsilon},
+\qquad
+e_V
+=
+\frac{\|\nu_{\mathrm{emit}}^{+}-\nu_{\mathrm{dense}}^{+}\|_2}
+{\|\nu_{\mathrm{dense}}^{+}-\nu^{-}\|_2+\varepsilon},
+\end{equation}
+\begin{equation}
+e_R
+=
+\max_{s\in\mathcal{S}_{T}}
+\frac{|h_{\mathrm{emit}}^{I}(s)-h_{\mathrm{red}}^{I}(s)|}
+{h_{\mathrm{red}}^{I}(s)+\varepsilon},
+\end{equation}
+其中 $e_I$ 衡量 dense 与 reduced 之间的一步冲量误差，$e_V$ 衡量 dense 与 reinjected solver contacts 之间的一步速度更新误差，$e_R$ 衡量 reinjection 在切向冲量可行域上的损失。于是，本文的最终动态目标可表述为
+\begin{equation}
+\text{static wrench equivalence}
+\;+\;
+\text{impulse-set preservation}
+\;+\;
+\text{solver-facing reinjection consistency}.
+\end{equation}
+
 \subsection{自适应误差控制}
 
 综合前述定义，本文在每个 subpatch 上维护以下误差：
 \begin{equation}
  e_{\mathrm{plane}},\quad
  e_{\mathcal{C}},\quad
+ e_{\mathcal{I}},\quad
  e_w=
  \frac{\|w^\star-\hat{w}\|}{\|w^\star\|+\varepsilon},\quad
+ e_I,\quad
+ e_V,\quad
+ e_R,\quad
  e_{\mathrm{CoP}},\quad
  e_g,\quad
  e_{\mathrm{topo}}.
 \end{equation}
-其中 $e_w$ 衡量参考 wrench 与 reduced wrench 的匹配误差，$e_{\mathrm{CoP}}$ 衡量 CoP 的漂移误差。自适应策略如下：
+其中 $e_w$ 衡量参考 wrench 与 reduced wrench 的匹配误差，$e_I$ 与 $e_V$ 分别衡量一步冲量与一步速度更新误差，$e_R$ 衡量 reinjection 的切向可行域缺口，$e_{\mathrm{CoP}}$ 衡量 CoP 的漂移误差。自适应策略如下：
 \begin{itemize}[leftmargin=2em]
     \item 若 $e_{\mathrm{plane}}$ 或 $e_{\mathrm{topo}}$ 主导，则细分 subpatch；
-    \item 若 $e_{\mathcal{C}}$ 或 $e_{\mathrm{CoP}}$ 主导，则重新优化代表点位置；
-    \item 若 reduced 力分配不可行，则增加代表点数；
-    \item 若 $e_g$ 主导，则细分 subpatch 并增加 sentinel 点。
+    \item 若 $e_{\mathcal{C}}$、$e_{\mathcal{I}}$ 或 $e_{\mathrm{CoP}}$ 主导，则重新优化代表点位置；
+    \item 若 reduced 力分配不可行或 $e_I$ 持续偏大，则增加代表点数或提高摩擦射线分辨率；
+    \item 若 $e_R$ 主导，则继续优化 solver-facing reinjection 的 slot 位置、法向和切向冲量分配；
+    \item 若 $e_g$ 主导，则细分 subpatch 并增加 sentinel 点；
+    \item 若 $e_V$ 在多个时间步上持续偏大，则优先调整时间传输与 reinjection，而不是仅继续拟合瞬时 wrench。
 \end{itemize}
 
 由此形成如下误差驱动循环：

@@ -29,6 +29,8 @@ struct DenseContactPoint {
 struct DenseContactCloudStats {
     std::size_t total_samples = 0;
     std::size_t candidate_samples = 0;
+    std::size_t phi_prefilter_samples = 0;
+    std::size_t exact_samples = 0;
     std::size_t active_samples = 0;
     DenseSampleBVHQueryStats bvh;
 };

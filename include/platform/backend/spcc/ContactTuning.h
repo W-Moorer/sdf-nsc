@@ -18,6 +18,7 @@ struct CompressedContactConfig {
     double delta_on = 0.0;
     double delta_off = 0.0;
     int max_active_dense = 0;
+    int max_exact_candidates = 0;
     int bvh_leaf_size = 24;
     double bvh_query_margin = 0.0;
     double bvh_velocity_bound_scale = 1.0;
@@ -47,6 +48,8 @@ struct CompressedContactConfig {
     double reinjection_normal_moment_weight = 0.5;
     double reinjection_tangential_moment_weight = 1.0;
     double reinjection_seed_regularization = 1.0e-8;
+    int dense_micro_refresh_steps = 1;
+    int support_optimize_refresh_steps = 1;
     double tangential_heterogeneity_threshold = 0.18;
     double tangential_emission_threshold = 0.12;
     double temporal_stencil_blend = 0.2;
@@ -79,8 +82,8 @@ inline SdfBuildTuning MakeCamSdfBuildDefaults() {
 
 inline SurfaceSampleTuning MakeCamSurfaceSampleDefaults() {
     SurfaceSampleTuning tuning;
-    tuning.surface_res = 1.0e-3;
-    tuning.max_samples = 60000;
+    tuning.surface_res = 1.5e-3;
+    tuning.max_samples = 8000;
     return tuning;
 }
 
@@ -88,7 +91,8 @@ inline CompressedContactConfig MakeCamCompressedDefaults() {
     CompressedContactConfig cfg;
     cfg.delta_on = 4.0e-3;
     cfg.delta_off = 5.0e-3;
-    cfg.max_active_dense = 160;
+    cfg.max_active_dense = 96;
+    cfg.max_exact_candidates = 384;
     cfg.bvh_leaf_size = 24;
     cfg.bvh_query_margin = 2.0e-3;
     cfg.bvh_velocity_bound_scale = 1.0;
@@ -98,22 +102,24 @@ inline CompressedContactConfig MakeCamCompressedDefaults() {
     cfg.max_patch_diameter = 1.6e-2;
     cfg.max_subpatch_diameter = 8.0e-3;
     cfg.max_plane_error = 5.0e-4;
-    cfg.max_second_moment_error = 8.0e-2;
-    cfg.max_cone_error = 8.0e-2;
-    cfg.cone_direction_count = 24;
-    cfg.dense_micro_friction_rays = 16;
-    cfg.reduced_friction_rays = 12;
-    cfg.sentinel_spacing = 1.5e-3;
-    cfg.sentinel_margin = 7.5e-4;
-    cfg.max_subpatch_depth = 3;
+    cfg.max_second_moment_error = 1.0e-1;
+    cfg.max_cone_error = 1.0e-1;
+    cfg.cone_direction_count = 12;
+    cfg.dense_micro_friction_rays = 8;
+    cfg.reduced_friction_rays = 8;
+    cfg.sentinel_spacing = 2.0e-3;
+    cfg.sentinel_margin = 1.0e-3;
+    cfg.max_subpatch_depth = 2;
     cfg.min_dense_points_per_subpatch = 12;
-    cfg.max_reduced_points_per_patch = 6;
-    cfg.max_dynamic_reduced_points_per_patch = 8;
+    cfg.max_reduced_points_per_patch = 4;
+    cfg.max_dynamic_reduced_points_per_patch = 6;
     cfg.warm_start_match_radius = 4.0e-3;
     cfg.temporal_load_regularization = 1.0e-8;
     cfg.temporal_reference_blend = 0.05;
     cfg.temporal_stencil_blend = 0.22;
     cfg.dense_micro_wrench_coupling_weight = 0.15;
+    cfg.dense_micro_refresh_steps = 2;
+    cfg.support_optimize_refresh_steps = 3;
     cfg.max_wrench_error = 0.05;
     cfg.max_cop_error = 1.0e-3;
     cfg.max_gap_error = 1.0e-3;

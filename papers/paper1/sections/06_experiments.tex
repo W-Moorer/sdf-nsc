@@ -1,6 +1,6 @@
 \label{sec:experiments}
 
-本节给出面向后续投稿的实验设计框架。由于当前版本重点在方法论与理论层面，因此实验部分先给出完整设计、评价指标和对比基线，具体数值结果可在实现完成后补入。
+本节围绕两个层次展开实验：其一是静态的 wrench-preserving 验证，其二是一步时间推进下的 dynamic-consistency 验证。本文强调，静态合力、合力矩与 CoP 的保持是必要条件，但并不是充分条件；对最终动力学精度起决定作用的，是 dense 接触、reduced support 以及 solver-facing reinjection 在同一时间步内是否产生近似一致的广义冲量与广义速度更新。
 
 \subsection{实验目标}
 
@@ -11,8 +11,12 @@
     \item 在点接触、连续区域接触和长条形接触场景中，本文方法是否能显著降低合力和合力矩误差？
     \item 在接触作用线、CoP 漂移和内部 gap 误差上，本文方法是否优于传统流形维护方法？
     \item 多 patch / 多 subpatch 的自适应 refinement 是否能根据接触类型自动调节模型复杂度？
+    \item 在一步时间推进意义下，本文方法是否能同时降低广义冲量误差 $e_I$ 与速度更新误差 $e_V$？
+    \item solver-facing reinjection 引入的可行域缺口 $e_R$ 是否已成为主导误差来源？
     \item 在不同时间步长、摩擦系数和几何分辨率下，本文方法是否具有较好的鲁棒性？
 \end{enumerate}
+
+因此，本节所有动态结果都应理解为对如下命题的验证：\textbf{瞬时静态等效是必要条件，而一步冲量与速度更新一致性才是最终判据。} 若某一方法在静态误差上已经很小，但在 $e_I$、$e_V$ 或 $e_R$ 上仍然偏大，则应认为它尚未达到本文理论所追求的 solver-consistent contact reduction。
 
 \subsection{实验平台与实现设置}
 
@@ -110,6 +114,37 @@
 \paragraph{(6) 求解规模与运行时间}
 记录最终代表点总数 $N_{\mathrm{red}}$、平均 subpatch 数、每步局部微求解时间、全局求解时间与总仿真时间，用于评估精度与计算代价之间的关系。
 
+\paragraph{(7) 一步广义冲量误差}
+记 dense 微求解给出的参考一步冲量为 $\Delta p_{\mathrm{dense}}^\star$，reduced 模型给出的对应一步冲量为 $\Delta p_{\mathrm{red}}^\star$，则定义
+\begin{equation}
+\varepsilon_I
+=
+\frac{\|\Delta p_{\mathrm{red}}^\star-\Delta p_{\mathrm{dense}}^\star\|_2}
+{\|\Delta p_{\mathrm{dense}}^\star\|_2+\epsilon}.
+\end{equation}
+该指标直接度量 reduced support 是否保住了 dense subpatch 在当前时间步中的主导冲量效应。
+
+\paragraph{(8) 一步速度更新误差}
+设 dense 与 reinjected solver contacts 在同一时间步结束时产生的广义速度分别为 $\nu_{\mathrm{dense}}^{+}$ 与 $\nu_{\mathrm{emit}}^{+}$，则定义
+\begin{equation}
+\varepsilon_V
+=
+\frac{\|\nu_{\mathrm{emit}}^{+}-\nu_{\mathrm{dense}}^{+}\|_2}
+{\|\nu_{\mathrm{dense}}^{+}-\nu^{-}\|_2+\epsilon}.
+\end{equation}
+它是本文新的决定性动态指标，用于判断压缩模型是否在目标求解器下保持了一步动力学等效。
+
+\paragraph{(9) Reinjection 可行域缺口}
+记 reduced support 对应的一步冲量集为 $\mathcal{I}_{\mathrm{red}}^{h}$，solver-facing reinjection 后离散点接触对应的一步冲量集为 $\mathcal{I}_{\mathrm{emit}}^{h}$，则定义
+\begin{equation}
+\varepsilon_R
+=
+\max_{s\in\mathcal{S}_{T}}
+\frac{|h_{\mathrm{emit}}^{I}(s)-h_{\mathrm{red}}^{I}(s)|}
+{h_{\mathrm{red}}^{I}(s)+\epsilon}.
+\end{equation}
+该量专门用于识别“reduced support 本身已经足够好，但在重新注入 NSC 点接触后丢失了切向可行域”的情形。
+
 \subsection{对比基线}
 
 建议至少设置以下基线：
@@ -140,9 +175,69 @@
     \item 不同场景下 dense patch 与 reduced support set 的可视化图；
     \item 不同时间步的 patch / subpatch 分解与跟踪结果；
     \item 合力误差、合力矩误差、CoP 误差与内部 gap 误差的折线图或箱线图；
+    \item 一步冲量误差 $\varepsilon_I$、一步速度更新误差 $\varepsilon_V$ 与 reinjection 缺口 $\varepsilon_R$ 的时序图或统计图；
     \item 不同误差阈值下 $N_{\mathrm{red}}$ 与精度的关系曲线；
     \item 消融实验表格与复杂度统计表。
 \end{itemize}
+
+\subsection{闭式球碰撞基准}
+
+在进入多 patch、长条接触和曲面滚滑算例之前，本文首先给出两组具有闭式理论解的球-球对心碰撞基准：等质量弹性碰撞与质量比 $1:2$ 的弹性碰撞。它们的作用不是证明多 patch / 多 subpatch 约化本身已经充分成立，而是为后续更复杂算例提供一个\textbf{closed-form sanity check}：验证当前实现至少能够正确传递一维法向冲量，并在目标时间步推进下恢复理论后碰速度。
+
+需要特别说明的是，当前工程实现中的 head-on sphere SDF 路径启用了球-球解析 TOI 专用接触分支，因此这里的 SDF 结果应被理解为\textbf{接触接口与时间推进一致性验证}，而不是多 patch 压缩流形在一般场景中的主证据。相对地，原生 mesh 结果仍保留离散点接触与时间步碰撞检测误差，因此它可作为一个清晰的基线参考。
+
+图~\ref{fig:headon_equal_benchmark} 给出等质量球对心碰撞的速度时程。理论解要求碰撞后两球交换速度，即 $(v_A^+, v_B^+) = (0, 1)$。图~\ref{fig:headon_massratio_benchmark} 给出质量比 $1:2$ 的对心碰撞，理论解为 $(v_A^+, v_B^+) = (-4/3, -1/3)$。表~\ref{tab:headon_benchmark} 进一步汇总了理论末速度、数值末速度以及整段时间曲线的 RMSE。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{figures/generated/headon_spheres_benchmark.pdf}
+    \caption{等质量小球对心弹性碰撞基准。虚线为闭式理论解，实线分别为原生 mesh 管线与当前一阶 SDF 管线，其中后者对应 head-on sphere 的解析 TOI 分支。该算例用于验证一维法向冲量交换与碰撞后速度恢复是否正确。}
+    \label{fig:headon_equal_benchmark}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{figures/generated/headon_spheres_massratio_benchmark.pdf}
+    \caption{非均质小球对心弹性碰撞基准，其中 $m_B = 2 m_A$。虚线为闭式理论解，实线分别为原生 mesh 管线与当前一阶 SDF 管线，其中后者对应 head-on sphere 的解析 TOI 分支。该算例用于验证不等质量条件下的法向冲量传递是否保持理论后碰速度。}
+    \label{fig:headon_massratio_benchmark}
+\end{figure}
+
+\begin{table}[htbp]
+    \centering
+    \scriptsize
+    \input{sections/generated/headon_benchmark_table.tex}
+    \caption{两组闭式球碰撞基准的末速度与轨迹误差汇总。这里的 SDF 结果验证的是 head-on sphere 接触接口与时间推进正确性；它不直接替代本文后续关于多 patch / 多 subpatch 连续区域接触的核心实验。}
+    \label{tab:headon_benchmark}
+\end{table}
+
+\paragraph{结果解读}
+这两组算例可以给出一个清晰的正结论：当前项目中的球碰撞基准已经能够恢复理论后碰速度，且一阶 SDF 版本在这两个闭式问题上与理论末状态一致。与此同时，它们也只能支持一个\textbf{有限结论}：本文当前实现已经通过了一维法向冲量传递的正确性检查，但这并不能替代连续区域接触、切向摩擦和 solver-facing reinjection 的主实验验证。因此，这两组球碰撞更适合放在实验章节前部作为正确性基准，而不应被用作本文核心方法已经完全验证的主要证据。
+
+\subsection{工业凸轮连续滑移基准}
+
+为了补充一个比球碰撞更接近本文目标场景的算例，本文进一步采用项目资产中的工业凸轮-从动件基准。该算例具有持续接触、明显滑移以及非平凡的接触作用线变化，因此比闭式球碰撞更能反映本文所关心的连续区域接触行为。参考轨迹来自项目资产中的 \texttt{cam\_data.csv} 基准数据；本文在 $\Delta t = 0.01~\mathrm{s}$ 下比较原生 mesh 管线与当前一阶 SDF 管线。
+
+图~\ref{fig:cam_benchmark_dt0p01} 给出从动件纵向位移与速度的时间曲线。表~\ref{tab:cam_benchmark} 汇总位置 RMSE、速度 RMSE 与速度峰值误差。与前面的闭式球碰撞不同，这一算例不再是单纯的法向冲量 sanity check，而是一个\textbf{连续滑移接触的应用级基准}：它更直接地检验压缩接触表示在真实机构运动中的轨迹保真度。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{figures/generated/cam_benchmark_dt0p01.pdf}
+    \caption{工业凸轮-从动件基准在 $\Delta t = 0.01~\mathrm{s}$ 下的轨迹对比。上图为从动件纵向位移，下图为从动件纵向速度；虚线为参考解，实线分别为原生 mesh 管线与当前一阶 SDF 管线。该算例用于评估连续滑移接触下的轨迹保真度。}
+    \label{fig:cam_benchmark_dt0p01}
+\end{figure}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \input{sections/generated/cam_benchmark_table.tex}
+    \caption{工业凸轮基准在 $\Delta t = 0.01~\mathrm{s}$ 下的误差汇总。相比原生 mesh，当前一阶 SDF 管线在位置 RMSE、速度 RMSE 与速度峰值误差上均更接近参考轨迹。}
+    \label{tab:cam_benchmark}
+\end{table}
+
+\paragraph{结果解读}
+这一算例给出了一个比球碰撞更贴近本文方法目标的正结论：在当前一阶 SDF 实现下，压缩接触表示已经能够在一个持续滑移的工业凸轮基准中优于原生 mesh 管线。具体而言，位置 RMSE 从 $2.729\times 10^{-3}$ 降到 $9.771\times 10^{-4}$，速度 RMSE 从 $5.762\times 10^{-2}$ 降到 $3.344\times 10^{-2}$，速度峰值误差也从 $7.035\times 10^{-1}$ 降到 $3.546\times 10^{-1}$。这说明本文当前的 surface-first / reduced-support 表示并非只在闭式球碰撞中成立，而是已经能够在一个更接近工程接触条件的连续滑移算例里给出更好的轨迹一致性。
+
+但这一定性仍应保持克制。首先，该算例主要验证的是\textbf{单一机构 benchmark 上的轨迹保真度}，并不能单独证明前文关于多 patch / 多 subpatch、局部一步冲量一致性以及 solver-facing reinjection 的全部理论命题都已经被完全兑现。其次，当前比较只覆盖了 mesh 与一阶 SDF 两条主线，还没有把更强的 baseline 与更复杂的曲面滚滑、多 patch 切换场景全部纳入。因此，这组凸轮结果最合适的定位是：它为本文方法提供了一个\textbf{应用级正证据}，表明当前实现已经在连续滑移接触中体现出相对 mesh 的实际优势；但它仍然需要与后续的误差分解、基线与消融结果结合起来，才能支撑更完整的论文结论。
 
 \subsection{当前原型结果：静态与简单动力学的对应性}
 

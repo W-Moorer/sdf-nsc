@@ -57,6 +57,8 @@ struct ReducedContactPoint {
 struct CompressionStats {
     std::size_t total_samples = 0;
     std::size_t candidate_count = 0;
+    std::size_t phi_prefilter_count = 0;
+    std::size_t exact_count = 0;
     std::size_t dense_count = 0;
     std::size_t reduced_count = 0;
     std::size_t patch_count = 0;
@@ -81,6 +83,14 @@ struct CompressionStats {
     double max_subpatch_reference_cop_error = 0.0;
     double max_dense_micro_force_residual = 0.0;
     double max_dense_micro_moment_residual = 0.0;
+    double dense_cloud_ms = 0.0;
+    double patch_ms = 0.0;
+    double subpatch_ms = 0.0;
+    double dense_micro_ms = 0.0;
+    double support_build_ms = 0.0;
+    double allocation_ms = 0.0;
+    double reinjection_ms = 0.0;
+    double total_pipeline_ms = 0.0;
 };
 
 struct TemporalSubpatchState {
@@ -121,6 +131,7 @@ class CompressedContactPipeline {
     mutable std::vector<ReducedContactPoint> previous_contacts_;
     mutable std::vector<TemporalSubpatchState> previous_subpatches_;
     mutable std::size_t next_persistent_id_ = 1;
+    mutable std::size_t build_step_counter_ = 0;
     mutable double previous_step_size_ = 0.0;
 };
 

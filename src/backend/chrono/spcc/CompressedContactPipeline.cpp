@@ -1,6 +1,7 @@
 #include "platform/backend/spcc/CompressedContactPipeline.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -2597,7 +2598,8 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
                                                                      const CompressedContactConfig& cfg,
                                                                      const std::vector<ReducedContactPoint>& previous_contacts,
                                                                      double match_radius,
-                                                                     int target_points) {
+                                                                     int target_points,
+                                                                     bool enable_center_optimization) {
     target_points = std::max(1, std::min(target_points, static_cast<int>(subpatch.members.size())));
     const auto support_indices = SelectSupportIndices(dense_points, subpatch, previous_contacts, match_radius,
                                                       target_points);
@@ -2611,7 +2613,9 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
         centers_W.push_back(dense_points[dense_index].x_W);
     }
 
-    OptimizeSupportCenters(dense_points, subpatch, cfg, !previous_contacts.empty(), centers_W);
+    if (enable_center_optimization) {
+        OptimizeSupportCenters(dense_points, subpatch, cfg, !previous_contacts.empty(), centers_W);
+    }
     std::vector<std::size_t> assignments = AssignDensePointsToCenters(dense_points, subpatch, centers_W);
 
     std::vector<ReducedSupportAggregate> supports;
@@ -2863,17 +2867,25 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                                                      std::vector<ReducedContactPoint>& out_contacts,
                                                      CompressionStats* out_stats) const {
     out_contacts.clear();
+    const std::size_t build_step_index = build_step_counter_++;
+    const auto pipeline_begin = std::chrono::steady_clock::now();
 
     std::vector<DenseContactPoint> dense_points;
     DenseContactCloudStats cloud_stats;
+    const auto dense_begin = std::chrono::steady_clock::now();
     DenseContactCloudBuilder::Build(cfg_, slave_surface_samples_, dense_sample_bvh_, master_state, slave_state, sdf,
                                     step_size, dense_points, &cloud_stats);
+    const auto dense_end = std::chrono::steady_clock::now();
 
     std::vector<DensePatch> patches;
+    const auto patch_begin = std::chrono::steady_clock::now();
     SubpatchRefiner::BuildPatches(dense_points, cfg_, patches);
+    const auto patch_end = std::chrono::steady_clock::now();
 
     std::vector<DenseSubpatch> subpatches;
+    const auto subpatch_begin = std::chrono::steady_clock::now();
     SubpatchRefiner::BuildSubpatches(dense_points, patches, cfg_, subpatches);
+    const auto subpatch_end = std::chrono::steady_clock::now();
     const auto matched_previous = MatchSubpatches(subpatches, previous_subpatches_, cfg_);
 
     double max_subpatch_plane_error = 0.0;
@@ -2886,6 +2898,10 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     double max_subpatch_reference_cop_error = 0.0;
     double max_dense_micro_force_residual = 0.0;
     double max_dense_micro_moment_residual = 0.0;
+    double dense_micro_ms = 0.0;
+    double support_build_ms = 0.0;
+    double allocation_ms = 0.0;
+    double reinjection_ms = 0.0;
 
     out_contacts.reserve(dense_points.size());
     std::vector<TemporalSubpatchState> current_subpatches;
@@ -2950,11 +2966,19 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                                                                                   ? 4
                                                                                   : 3)));
         DenseMicroReferenceResult dense_micro_reference;
-        if (cfg_.enable_dense_micro_solver) {
+        const bool refresh_dense_micro =
+            (cfg_.dense_micro_refresh_steps <= 1) ||
+            ((build_step_index % static_cast<std::size_t>(cfg_.dense_micro_refresh_steps)) == 0) ||
+            (matched_previous_state == nullptr);
+        if (cfg_.enable_dense_micro_solver && refresh_dense_micro) {
             const auto dense_micro_options = MakeDenseMicroSolverOptions(cfg_);
+            const auto dense_micro_begin = std::chrono::steady_clock::now();
             LocalWrenchAllocator::BuildDenseMicroReference(dense_points, subpatch.members, subpatch.centroid_W,
                                                            mu_default, step_size, dense_micro_options,
                                                            dense_micro_reference);
+            const auto dense_micro_end = std::chrono::steady_clock::now();
+            dense_micro_ms +=
+                std::chrono::duration<double, std::milli>(dense_micro_end - dense_micro_begin).count();
         } else {
             dense_micro_reference.reference = BuildProxyReference(dense_points, subpatch, subpatch.centroid_W);
             dense_micro_reference.force_residual = 0.0;
@@ -2985,9 +3009,15 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         double subpatch_gap_mismatch = 0.0;
         double subpatch_reference_wrench_error = 0.0;
         double subpatch_reference_cop_error = 0.0;
+        const bool refresh_support_opt =
+            (cfg_.support_optimize_refresh_steps <= 1) ||
+            ((build_step_index % static_cast<std::size_t>(cfg_.support_optimize_refresh_steps)) == 0) ||
+            previous_local_contacts.empty();
         while (true) {
+            const auto support_build_begin = std::chrono::steady_clock::now();
             supports = BuildReducedSupportsForSubpatch(dense_points, subpatch, cfg_, selection_previous_contacts,
-                                                       cfg_.warm_start_match_radius, target_points);
+                                                       cfg_.warm_start_match_radius, target_points,
+                                                       refresh_support_opt);
             matched_supports =
                 MatchSupportsToPrevious(supports, previous_local_contacts, cfg_.warm_start_match_radius);
             support_ids = AssignSupportIds(matched_supports, previous_local_contacts);
@@ -2995,6 +3025,9 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             std::iota(support_order.begin(), support_order.end(), 0);
             std::sort(support_order.begin(), support_order.end(),
                       [&support_ids](std::size_t a, std::size_t b) { return support_ids[a] < support_ids[b]; });
+            const auto support_build_end = std::chrono::steady_clock::now();
+            support_build_ms +=
+                std::chrono::duration<double, std::milli>(support_build_end - support_build_begin).count();
 
             if (!supports.empty()) {
                 const double transport_alpha =
@@ -3052,9 +3085,13 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                 }
 
                 WrenchAllocationResult allocation;
+                const auto allocation_begin = std::chrono::steady_clock::now();
                 LocalWrenchAllocator::Allocate(
                     support_points, reference,
                     MakeReducedSolveOptions(cfg_, cfg_.temporal_load_regularization), allocation);
+                const auto allocation_end = std::chrono::steady_clock::now();
+                allocation_ms +=
+                    std::chrono::duration<double, std::milli>(allocation_end - allocation_begin).count();
                 max_subpatch_force_residual = std::max(max_subpatch_force_residual, allocation.force_residual);
                 max_subpatch_moment_residual = std::max(max_subpatch_moment_residual, allocation.moment_residual);
 
@@ -3119,6 +3156,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             std::max(max_subpatch_reference_cop_error, subpatch_reference_cop_error);
 
         const std::size_t contacts_begin = out_contacts.size();
+        const auto reinjection_begin = std::chrono::steady_clock::now();
         for (const auto support_index : support_order) {
             const auto& support = supports[support_index];
             const ReducedContactPoint* previous_support_contact = nullptr;
@@ -3159,6 +3197,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             SeedReactionCaches(dense_points, subpatch, support, cfg_, step_size, previous_support_contact, reduced);
             out_contacts.push_back(reduced);
         }
+        const auto reinjection_end = std::chrono::steady_clock::now();
+        reinjection_ms += std::chrono::duration<double, std::milli>(reinjection_end - reinjection_begin).count();
 
         TemporalSubpatchState temporal_state;
         temporal_state.persistent_id = persistent_id;
@@ -3183,6 +3223,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     previous_contacts_ = out_contacts;
     previous_subpatches_ = std::move(current_subpatches);
     previous_step_size_ = step_size;
+    const auto pipeline_end = std::chrono::steady_clock::now();
 
     if (!out_stats) {
         return;
@@ -3190,6 +3231,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
 
     out_stats->total_samples = cloud_stats.total_samples;
     out_stats->candidate_count = cloud_stats.candidate_samples;
+    out_stats->phi_prefilter_count = cloud_stats.phi_prefilter_samples;
+    out_stats->exact_count = cloud_stats.exact_samples;
     out_stats->dense_count = dense_points.size();
     out_stats->reduced_count = out_contacts.size();
     out_stats->patch_count = patches.size();
@@ -3208,6 +3251,18 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     out_stats->max_subpatch_reference_cop_error = max_subpatch_reference_cop_error;
     out_stats->max_dense_micro_force_residual = max_dense_micro_force_residual;
     out_stats->max_dense_micro_moment_residual = max_dense_micro_moment_residual;
+    out_stats->dense_cloud_ms =
+        std::chrono::duration<double, std::milli>(dense_end - dense_begin).count();
+    out_stats->patch_ms =
+        std::chrono::duration<double, std::milli>(patch_end - patch_begin).count();
+    out_stats->subpatch_ms =
+        std::chrono::duration<double, std::milli>(subpatch_end - subpatch_begin).count();
+    out_stats->dense_micro_ms = dense_micro_ms;
+    out_stats->support_build_ms = support_build_ms;
+    out_stats->allocation_ms = allocation_ms;
+    out_stats->reinjection_ms = reinjection_ms;
+    out_stats->total_pipeline_ms =
+        std::chrono::duration<double, std::milli>(pipeline_end - pipeline_begin).count();
 
     if (dense_points.empty() || out_contacts.empty()) {
         out_stats->epsilon_F = 0.0;

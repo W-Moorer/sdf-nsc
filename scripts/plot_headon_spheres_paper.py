@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / "data" / "outputs"
-FIG_DIR = ROOT / "papers" / "figures"
+FIG_DIR = ROOT / "papers" / "paper1" / "figures" / "generated"
 
 
 def load_series(path: Path):
@@ -55,22 +55,18 @@ def main():
 
     mesh_t, mesh_a, mesh_b = load_series(OUTPUT_DIR / "headon_spheres_mesh.csv")
     sdf1_t, sdf1_a, sdf1_b = load_series(OUTPUT_DIR / "headon_spheres_sdf1.csv")
-    sdf2_t, sdf2_a, sdf2_b = load_series(OUTPUT_DIR / "headon_spheres_sdf2.csv")
 
     ref_a, ref_b = analytic_reference(mesh_t)
 
     mesh_rmse_a = rmse(mesh_a, ref_a)
     sdf1_rmse_a = rmse(sdf1_a, ref_a)
-    sdf2_rmse_a = rmse(sdf2_a, ref_a)
     mesh_rmse_b = rmse(mesh_b, ref_b)
     sdf1_rmse_b = rmse(sdf1_b, ref_b)
-    sdf2_rmse_b = rmse(sdf2_b, ref_b)
 
     colors = {
         "ref": "#111111",
         "mesh": "#1f77b4",
         "sdf1": "#d62728",
-        "sdf2": "#2ca02c",
     }
 
     fig, axes = plt.subplots(2, 1, figsize=(7.2, 5.2), sharex=True)
@@ -81,8 +77,6 @@ def main():
             label=f"Native mesh (RMSE = {mesh_rmse_a:.3e})")
     ax.plot(sdf1_t, sdf1_a, color=colors["sdf1"], linewidth=1.5, linestyle="--", dashes=(6, 3),
             label=f"SDF 1st-order (RMSE = {sdf1_rmse_a:.3e})")
-    ax.plot(sdf2_t, sdf2_a, color=colors["sdf2"], linewidth=1.6,
-            label=f"SDF 2nd-order (RMSE = {sdf2_rmse_a:.3e})")
     ax.set_ylabel("Sphere A velocity X (m/s)")
     ax.set_title("Head-on Equal-Sphere Impact Benchmark")
     ax.grid(True, alpha=0.25)
@@ -94,8 +88,6 @@ def main():
             label=f"Native mesh (RMSE = {mesh_rmse_b:.3e})")
     ax.plot(sdf1_t, sdf1_b, color=colors["sdf1"], linewidth=1.5, linestyle="--", dashes=(6, 3),
             label=f"SDF 1st-order (RMSE = {sdf1_rmse_b:.3e})")
-    ax.plot(sdf2_t, sdf2_b, color=colors["sdf2"], linewidth=1.6,
-            label=f"SDF 2nd-order (RMSE = {sdf2_rmse_b:.3e})")
     ax.set_ylabel("Sphere B velocity X (m/s)")
     ax.set_xlabel("Time (s)")
     ax.grid(True, alpha=0.25)

@@ -17,6 +17,11 @@ chrono::ChVector3d SafeNormalized(const chrono::ChVector3d& v, const chrono::ChV
     return v * (1.0 / len);
 }
 
+struct RankedCandidate {
+    std::size_t sample_id = 0;
+    double phi = 0.0;
+};
+
 }  // namespace
 
 void DenseContactCloudBuilder::Build(const CompressedContactConfig& cfg,
@@ -45,6 +50,42 @@ void DenseContactCloudBuilder::Build(const CompressedContactConfig& cfg,
     }
 
     stats.candidate_samples = candidate_indices.size();
+    if (cfg.max_exact_candidates > 0 &&
+        static_cast<int>(candidate_indices.size()) > cfg.max_exact_candidates) {
+        std::vector<RankedCandidate> ranked_candidates;
+        ranked_candidates.reserve(candidate_indices.size());
+        for (const auto sample_id : candidate_indices) {
+            const auto& sample = slave_surface_samples[sample_id];
+            const chrono::ChVector3d x_W = slave_state.x_ref_W + slave_state.R_WRef * sample.xi_slave_S;
+            const chrono::ChVector3d x_master_M = master_state.R_WRef.transpose() * (x_W - master_state.x_ref_W);
+
+            double phi = 0.0;
+            if (!sdf.QueryPhiM(x_master_M, phi)) {
+                continue;
+            }
+
+            RankedCandidate ranked;
+            ranked.sample_id = sample_id;
+            ranked.phi = phi;
+            ranked_candidates.push_back(ranked);
+        }
+
+        stats.phi_prefilter_samples = ranked_candidates.size();
+        const std::size_t exact_limit = static_cast<std::size_t>(std::max(cfg.max_exact_candidates, cfg.max_active_dense));
+        if (ranked_candidates.size() > exact_limit) {
+            std::stable_sort(ranked_candidates.begin(), ranked_candidates.end(),
+                             [](const RankedCandidate& a, const RankedCandidate& b) { return a.phi < b.phi; });
+            ranked_candidates.resize(exact_limit);
+        }
+
+        candidate_indices.clear();
+        candidate_indices.reserve(ranked_candidates.size());
+        for (const auto& ranked : ranked_candidates) {
+            candidate_indices.push_back(ranked.sample_id);
+        }
+    }
+
+    stats.exact_samples = candidate_indices.size();
     out_dense_points.reserve(candidate_indices.size());
 
     for (const auto sample_id : candidate_indices) {
