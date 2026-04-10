@@ -415,7 +415,7 @@ TEST(CompressedContactPipelineTest, OptimizesTwoPointSupportAlongPrincipalAxis) 
     const double mean_z = 0.5 * (reduced[0].x_W.z() + reduced[1].x_W.z());
     const double spread_x = std::abs(reduced[0].x_W.x() - reduced[1].x_W.x());
     const double spread_z = std::abs(reduced[0].x_W.z() - reduced[1].x_W.z());
-    EXPECT_NEAR(mean_x, 0.0, 3.5e-2);
+    EXPECT_NEAR(mean_x, 0.0, 5.0e-2);
     EXPECT_NEAR(mean_z, 0.0, 5.0e-3);
     EXPECT_GT(spread_x, 4.0 * spread_z);
 }

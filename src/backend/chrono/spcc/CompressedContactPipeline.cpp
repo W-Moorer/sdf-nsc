@@ -77,6 +77,11 @@ struct DirectionalSupportTargets {
     chrono::ChVector3d center_W;
     std::vector<chrono::ChVector3d> directions_W;
     std::vector<double> dense_support;
+    std::vector<double> direction_weights;
+};
+
+struct ClusterDirectionalEnvelope {
+    std::vector<double> positive_support;
 };
 
 double Clamp01(double value) {
@@ -410,6 +415,69 @@ DirectionalSupportTargets BuildDirectionalSupportTargets(const std::vector<Dense
         }
         targets.directions_W.push_back(dir_W);
         targets.dense_support.push_back(support_value);
+        targets.direction_weights.push_back(1.0);
+    }
+
+    return targets;
+}
+
+chrono::ChVector3d ComputePrincipalPlanarAxis(const PlanarStats2D& stats, const DenseSubpatch& subpatch) {
+    const double theta = 0.5 * std::atan2(2.0 * stats.cov_uv, stats.cov_uu - stats.cov_vv);
+    chrono::ChVector3d axis_W = std::cos(theta) * subpatch.t1_W + std::sin(theta) * subpatch.t2_W;
+    axis_W = ProjectToTangentUnit(axis_W, subpatch.avg_normal_W);
+    if (axis_W.Length2() > 0.0) {
+        return axis_W;
+    }
+    return subpatch.t1_W;
+}
+
+DirectionalSupportTargets BuildReinjectionDirectionalTargets(const std::vector<DenseContactPoint>& dense_points,
+                                                             const DenseSubpatch& subpatch,
+                                                             const PlanarStats2D& dense_stats,
+                                                             const chrono::ChVector3d& avg_v_rel_W) {
+    DirectionalSupportTargets targets;
+    const chrono::ChVector3d tangential_v_W =
+        avg_v_rel_W - chrono::Vdot(avg_v_rel_W, subpatch.avg_normal_W) * subpatch.avg_normal_W;
+    const double tangential_speed = tangential_v_W.Length();
+    if (!(tangential_speed > 1.0e-6)) {
+        return targets;
+    }
+
+    const double approach_speed = std::max(0.0, -chrono::Vdot(avg_v_rel_W, subpatch.avg_normal_W));
+    const double slip_dominance =
+        tangential_speed / std::max(tangential_speed + 1.25 * approach_speed, 1.0e-9);
+
+    chrono::ChVector3d primary_axis_W = tangential_v_W * (1.0 / tangential_speed);
+    primary_axis_W = ProjectToTangentUnit(primary_axis_W, subpatch.avg_normal_W);
+    if (primary_axis_W.Length2() <= 0.0) {
+        primary_axis_W = ComputePrincipalPlanarAxis(dense_stats, subpatch);
+    }
+    chrono::ChVector3d secondary_axis_W =
+        ProjectToTangentUnit(chrono::Vcross(subpatch.avg_normal_W, primary_axis_W), subpatch.avg_normal_W);
+    if (secondary_axis_W.Length2() <= 0.0) {
+        secondary_axis_W = ProjectToTangentUnit(subpatch.t2_W, subpatch.avg_normal_W);
+    }
+
+    targets.center_W = SubpatchReferenceCenter(dense_points, subpatch);
+    const double primary_weight = 1.0 + 0.85 * slip_dominance;
+    const double secondary_weight = 0.30 + 0.35 * (1.0 - slip_dominance);
+    const std::array<chrono::ChVector3d, 4> directions_W = {
+        primary_axis_W, -primary_axis_W, secondary_axis_W, -secondary_axis_W};
+    const std::array<double, 4> direction_weights = {
+        primary_weight, primary_weight, secondary_weight, secondary_weight};
+
+    for (std::size_t dir_index = 0; dir_index < directions_W.size(); ++dir_index) {
+        const auto& dir_W = directions_W[dir_index];
+        if (dir_W.Length2() <= 0.0) {
+            continue;
+        }
+        double support_value = -std::numeric_limits<double>::infinity();
+        for (const auto point_index : subpatch.members) {
+            support_value = std::max(support_value, chrono::Vdot(dense_points[point_index].x_W - targets.center_W, dir_W));
+        }
+        targets.directions_W.push_back(dir_W);
+        targets.dense_support.push_back(support_value);
+        targets.direction_weights.push_back(direction_weights[dir_index]);
     }
 
     return targets;
@@ -462,6 +530,80 @@ double ComputeCenterSeparationPenalty(const DenseSubpatch& subpatch,
         return 0.0;
     }
     return penalty / static_cast<double>(pair_count);
+}
+
+std::vector<ClusterDirectionalEnvelope> BuildClusterDirectionalEnvelopes(const std::vector<DenseContactPoint>& dense_points,
+                                                                         const DenseSubpatch& subpatch,
+                                                                         const std::vector<chrono::ChVector3d>& centers_W,
+                                                                         const std::vector<std::size_t>& assignments,
+                                                                         const DirectionalSupportTargets& targets) {
+    std::vector<ClusterDirectionalEnvelope> envelopes(centers_W.size());
+    for (auto& envelope : envelopes) {
+        envelope.positive_support.assign(targets.directions_W.size(), 0.0);
+    }
+
+    for (std::size_t local_index = 0; local_index < assignments.size(); ++local_index) {
+        const std::size_t cluster = assignments[local_index];
+        const auto point_index = subpatch.members[local_index];
+        const auto& point = dense_points[point_index];
+        for (std::size_t dir_index = 0; dir_index < targets.directions_W.size(); ++dir_index) {
+            const double projected = chrono::Vdot(point.x_W - centers_W[cluster], targets.directions_W[dir_index]);
+            envelopes[cluster].positive_support[dir_index] =
+                std::max(envelopes[cluster].positive_support[dir_index], projected);
+        }
+    }
+
+    return envelopes;
+}
+
+double ComputeReinjectionDirectionalReach(const DenseSubpatch& subpatch,
+                                          const chrono::ChVector3d& reference_center_W,
+                                          const chrono::ChVector3d& center_W,
+                                          const chrono::ChVector3d& direction_W,
+                                          double local_support_radius,
+                                          std::size_t center_count) {
+    const double global_cap = std::max(0.18 * subpatch.diameter, 1.0e-6);
+    const double local_cap = std::min(global_cap, 0.82 * local_support_radius);
+    const double center_scale = (center_count <= 1) ? 0.95 : ((center_count == 2) ? 0.82 : 0.72);
+    const double tangential_extent = center_scale * local_cap;
+    return chrono::Vdot(center_W - reference_center_W, direction_W) + tangential_extent;
+}
+
+double ComputeReinjectionObjective(const DenseSubpatch& subpatch,
+                                   const DirectionalSupportTargets& targets,
+                                   const std::vector<chrono::ChVector3d>& centers_W,
+                                   const std::vector<ClusterDirectionalEnvelope>& envelopes) {
+    if (centers_W.empty() || targets.directions_W.empty() || envelopes.size() != centers_W.size()) {
+        return 0.0;
+    }
+
+    double weighted_sum = 0.0;
+    double weight_sum = 0.0;
+    double max_under = 0.0;
+    for (std::size_t dir_index = 0; dir_index < targets.directions_W.size(); ++dir_index) {
+        double reduced_reach = -std::numeric_limits<double>::infinity();
+        for (std::size_t center_index = 0; center_index < centers_W.size(); ++center_index) {
+            reduced_reach = std::max(reduced_reach,
+                                     ComputeReinjectionDirectionalReach(subpatch, targets.center_W,
+                                                                        centers_W[center_index],
+                                                                        targets.directions_W[dir_index],
+                                                                        envelopes[center_index].positive_support[dir_index],
+                                                                        centers_W.size()));
+        }
+
+        const double normalized_error =
+            (targets.dense_support[dir_index] - reduced_reach) / std::max(subpatch.diameter, 1.0e-9);
+        const double under = std::max(0.0, normalized_error);
+        const double over = std::max(0.0, -normalized_error);
+        const double direction_weight =
+            (dir_index < targets.direction_weights.size()) ? targets.direction_weights[dir_index] : 1.0;
+        weighted_sum += direction_weight * (2.5 * under * under + 0.35 * over * over);
+        weight_sum += direction_weight;
+        max_under = std::max(max_under, under);
+    }
+
+    const double rms = std::sqrt(weighted_sum / std::max(weight_sum, 1.0e-12));
+    return 0.7 * rms + 0.3 * max_under;
 }
 
 double ComputeSupportGeometryObjective(const PlanarStats2D& dense_stats,
@@ -568,13 +710,19 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
     auto assignments = AssignDensePointsToCenters(dense_points, subpatch, centers_W);
     const auto dense_stats = ComputeDensePlanarStats(dense_points, subpatch);
     const auto cone_targets = BuildDirectionalSupportTargets(dense_points, subpatch, cfg.cone_direction_count);
+    const auto reinjection_targets =
+        BuildReinjectionDirectionalTargets(dense_points, subpatch, dense_stats, avg_v_rel_W);
     if (!(dense_stats.weight_sum > 1.0e-12)) {
         return;
     }
     const auto original_centers_W = centers_W;
     const auto original_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
+    const auto original_envelopes =
+        BuildClusterDirectionalEnvelopes(dense_points, subpatch, centers_W, assignments, reinjection_targets);
     const double original_objective =
         ComputeSupportGeometryObjective(dense_stats, original_stats, cone_targets, subpatch, centers_W);
+    const double original_reinjection_objective =
+        ComputeReinjectionObjective(subpatch, reinjection_targets, centers_W, original_envelopes);
 
     double min_u = 0.0;
     double max_u = 0.0;
@@ -588,14 +736,14 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
         if (!(support_stats.weight_sum > 1.0e-12)) {
             break;
         }
-
         const double dense_std_u = std::sqrt(std::max(dense_stats.cov_uu, 1.0e-12));
         const double dense_std_v = std::sqrt(std::max(dense_stats.cov_vv, 1.0e-12));
         const double support_std_u = std::sqrt(std::max(support_stats.cov_uu, 1.0e-12));
         const double support_std_v = std::sqrt(std::max(support_stats.cov_vv, 1.0e-12));
         const double scale_u = ClampScale(dense_std_u / support_std_u, 0.65, 1.65);
         const double scale_v = ClampScale(dense_std_v / support_std_v, 0.65, 1.65);
-        const double cone_blend = motion_gate * (has_temporal_history ? 0.10 : ((centers_W.size() <= 2) ? 0.28 : 0.22));
+        const double cone_blend =
+            motion_gate * (has_temporal_history ? 0.10 : ((centers_W.size() <= 2) ? 0.28 : 0.22));
         const double moment_blend = motion_gate * (has_temporal_history ? 0.06 : ((centers_W.size() <= 2) ? 0.18 : 0.14));
 
         ApplyConeDrivenCenterUpdate(cone_targets, subpatch, cone_blend, centers_W);
@@ -616,9 +764,25 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
     }
 
     const auto optimized_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
+    const auto optimized_envelopes =
+        BuildClusterDirectionalEnvelopes(dense_points, subpatch, centers_W, assignments, reinjection_targets);
     const double optimized_objective =
         ComputeSupportGeometryObjective(dense_stats, optimized_stats, cone_targets, subpatch, centers_W);
-    if (!(optimized_objective < original_objective)) {
+    const double optimized_reinjection_objective =
+        ComputeReinjectionObjective(subpatch, reinjection_targets, centers_W, optimized_envelopes);
+    const double primary_improvement_tol = std::max(1.0e-4, 0.01 * original_objective);
+    const double primary_nonworse_tol = std::max(2.5e-4, 0.03 * original_objective);
+    const double reinjection_nonworse_tol =
+        std::max(2.0e-4, (has_temporal_history ? 0.03 : 0.05) * original_reinjection_objective);
+    const double reinjection_improve_tol =
+        std::max(2.0e-4, 0.08 * original_reinjection_objective);
+    const bool primary_improved = optimized_objective + primary_improvement_tol < original_objective;
+    const bool reinjection_nonworse =
+        optimized_reinjection_objective <= original_reinjection_objective + reinjection_nonworse_tol;
+    const bool primary_nonworse = optimized_objective <= original_objective + primary_nonworse_tol;
+    const bool reinjection_improved =
+        optimized_reinjection_objective + reinjection_improve_tol < original_reinjection_objective;
+    if (!((primary_improved && reinjection_nonworse) || (primary_nonworse && reinjection_improved))) {
         centers_W = original_centers_W;
     }
 }
