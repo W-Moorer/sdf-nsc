@@ -40,6 +40,7 @@ struct ReducedContactPoint {
     chrono::ChVector3d allocated_force_W;
     double stencil_half_extent = 0.0;
     double stencil_half_extent_secondary = 0.0;
+    std::array<double, 5> stencil_gap_offsets{};
     double mu = 0.0;
     // Fixed cache slots: center, primary negative/positive, secondary negative/positive.
     std::array<float, 6> reaction_cache_primary{};

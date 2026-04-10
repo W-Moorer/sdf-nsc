@@ -53,6 +53,24 @@ platform::backend::spcc::RigidBodyStateW MakeIdentityState() {
     return state;
 }
 
+chrono::ChMatrix33<> BuildContactPlane(const chrono::ChVector3d& n_W) {
+    chrono::ChMatrix33<> contact_plane;
+    contact_plane.SetFromAxisX(n_W, chrono::VECT_Y);
+    return contact_plane;
+}
+
+chrono::ChVector3d DecodeCacheForce(const std::array<float, 6>& reaction_cache,
+                                    const chrono::ChVector3d& n_W,
+                                    double step_size) {
+    const chrono::ChMatrix33<> contact_plane = BuildContactPlane(n_W);
+    const chrono::ChVector3d local_impulse(reaction_cache[0], reaction_cache[1], reaction_cache[2]);
+    const chrono::ChVector3d impulse_W = contact_plane * local_impulse;
+    if (!(step_size > 1.0e-12)) {
+        return impulse_W;
+    }
+    return impulse_W * (1.0 / step_size);
+}
+
 }  // namespace
 
 TEST(CompressedContactPipelineTest, ReducesDensePatchIntoLimitedSupportPoints) {
@@ -397,4 +415,65 @@ TEST(CompressedContactPipelineTest, UsesFivePointStencilForExtremeShearWideSuppo
     EXPECT_EQ(reduced.front().emission_count, 5);
     EXPECT_GT(reduced.front().stencil_half_extent, 0.0);
     EXPECT_GT(reduced.front().stencil_half_extent_secondary, 0.0);
+}
+
+TEST(CompressedContactPipelineTest, SeedsStencilCachesToAllocatedForce) {
+    platform::backend::spcc::CompressedContactPipeline pipeline;
+    platform::backend::spcc::CompressedContactConfig cfg;
+    cfg.delta_on = 0.02;
+    cfg.delta_off = 0.03;
+    cfg.max_active_dense = 0;
+    cfg.patch_radius = 0.4;
+    cfg.normal_cos_min = 0.95;
+    cfg.max_patch_diameter = 0.5;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
+    cfg.max_reduced_points_per_patch = 1;
+    pipeline.Configure(cfg);
+
+    std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
+    for (int ix = -7; ix <= 7; ++ix) {
+        for (int iz = -7; iz <= 7; ++iz) {
+            platform::backend::spcc::DenseSurfaceSample sample;
+            sample.xi_slave_S = chrono::ChVector3d(0.018 * ix, -0.01, 0.018 * iz);
+            sample.normal_slave_S = chrono::ChVector3d(0.0, 1.0, 0.0);
+            sample.area_weight = 1.0;
+            samples.push_back(sample);
+        }
+    }
+    pipeline.SetSlaveSurfaceSamples(samples);
+
+    PlaneSDF sdf;
+    const auto master_state = MakeIdentityState();
+    auto slave_state = MakeIdentityState();
+    slave_state.v_com_W = chrono::ChVector3d(2.0, 0.0, 0.0);
+
+    constexpr double kStepSize = 1.0e-3;
+    std::vector<platform::backend::spcc::ReducedContactPoint> reduced;
+    platform::backend::spcc::CompressionStats stats;
+    pipeline.BuildReducedContacts(master_state, slave_state, sdf, 1.1, kStepSize, reduced, &stats);
+
+    ASSERT_EQ(reduced.size(), 1u);
+    const auto& contact = reduced.front();
+    ASSERT_EQ(contact.emission_count, 5);
+
+    chrono::ChVector3d seeded_force_W(0.0, 0.0, 0.0);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_primary, contact.n_W, kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_secondary, contact.n_W, kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_tertiary, contact.n_W, kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_quaternary, contact.n_W, kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_quinary, contact.n_W, kStepSize);
+
+    EXPECT_NEAR((seeded_force_W - contact.allocated_force_W).Length(), 0.0, 1.0e-6);
+    EXPECT_GT(DecodeCacheForce(contact.reaction_cache_secondary, contact.n_W, kStepSize).Length(), 0.0);
+    EXPECT_GT(DecodeCacheForce(contact.reaction_cache_quaternary, contact.n_W, kStepSize).Length(), 0.0);
+    const double gap_bias_sum = contact.stencil_gap_offsets[0] + contact.stencil_gap_offsets[1] +
+                                contact.stencil_gap_offsets[2] + contact.stencil_gap_offsets[3] +
+                                contact.stencil_gap_offsets[4];
+    EXPECT_NEAR(gap_bias_sum, 0.0, 1.0e-12);
+    EXPECT_GT(std::abs(contact.stencil_gap_offsets[1]), 0.0);
 }

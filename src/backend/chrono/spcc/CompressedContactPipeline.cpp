@@ -31,6 +31,7 @@ struct ReducedSupportAggregate {
     chrono::ChVector3d allocated_force_W;
     double coverage_radius = 0.0;
     std::size_t dense_members = 0;
+    std::vector<std::size_t> member_indices;
 };
 
 struct SubpatchMatchCandidate {
@@ -141,6 +142,21 @@ chrono::ChMatrix33<> BuildContactPlane(const chrono::ChVector3d& n_W) {
     return contact_plane;
 }
 
+void ClearReactionCache(std::array<float, 6>& reaction_cache) {
+    reaction_cache.fill(0.0f);
+}
+
+void EncodeReactionCacheWorldImpulse(std::array<float, 6>& reaction_cache,
+                                     const chrono::ChVector3d& impulse_W,
+                                     const chrono::ChVector3d& n_W) {
+    ClearReactionCache(reaction_cache);
+    const chrono::ChMatrix33<> contact_plane = BuildContactPlane(n_W);
+    const chrono::ChVector3d local_impulse = contact_plane.transpose() * impulse_W;
+    reaction_cache[0] = static_cast<float>(local_impulse.x());
+    reaction_cache[1] = static_cast<float>(local_impulse.y());
+    reaction_cache[2] = static_cast<float>(local_impulse.z());
+}
+
 chrono::ChVector3d DecodeReactionCacheWorldForce(const std::array<float, 6>& reaction_cache,
                                                  const chrono::ChVector3d& n_W) {
     const chrono::ChMatrix33<> contact_plane = BuildContactPlane(n_W);
@@ -194,6 +210,29 @@ double SupportMetricWeight(const ReducedSupportAggregate& support) {
         return support.support_weight;
     }
     return std::max(1.0e-12, support.area_weight);
+}
+
+double ComputeSupportAxisSpread(const std::vector<DenseContactPoint>& dense_points,
+                                const ReducedSupportAggregate& support,
+                                const chrono::ChVector3d& center_W,
+                                const chrono::ChVector3d& axis_W) {
+    if (support.member_indices.empty()) {
+        return 0.0;
+    }
+
+    double weighted_sum = 0.0;
+    double weight_sum = 0.0;
+    for (const auto dense_index : support.member_indices) {
+        const auto& point = dense_points[dense_index];
+        const double weight = DenseMetricWeight(point);
+        const double offset = chrono::Vdot(point.x_W - center_W, axis_W);
+        weighted_sum += weight * offset * offset;
+        weight_sum += weight;
+    }
+    if (!(weight_sum > 1.0e-12)) {
+        return 0.0;
+    }
+    return std::sqrt(weighted_sum / weight_sum);
 }
 
 SecondMoment2D ComputeDenseSecondMoment(const std::vector<DenseContactPoint>& dense_points,
@@ -494,6 +533,228 @@ double ChooseSecondaryStencilHalfExtent(const ReducedSupportAggregate& support,
     const double tangential_ratio = tangential_force_W.Length() / std::max(total_force_norm, 1.0e-12);
     const double base_extent = std::min(0.18 * support.coverage_radius, 0.09 * subpatch.diameter);
     return std::clamp((0.45 + 0.35 * tangential_ratio) * base_extent, 0.0, base_extent);
+}
+
+void NormalizeStencilWeights(std::array<double, 5>& weights, int emission_count) {
+    const int active_slots =
+        (emission_count >= 5) ? 5 : ((emission_count >= 3) ? 3 : ((emission_count == 2) ? 2 : 1));
+    double sum = 0.0;
+    for (int slot = 0; slot < active_slots; ++slot) {
+        weights[slot] = std::max(0.0, weights[slot]);
+        sum += weights[slot];
+    }
+    if (!(sum > 1.0e-12)) {
+        weights.fill(0.0);
+        if (active_slots == 1) {
+            weights[0] = 1.0;
+        } else if (active_slots == 2) {
+            weights[1] = 0.5;
+            weights[2] = 0.5;
+        } else if (active_slots == 3) {
+            weights[0] = 0.34;
+            weights[1] = 0.33;
+            weights[2] = 0.33;
+        } else {
+            weights[0] = 0.20;
+            weights[1] = 0.25;
+            weights[2] = 0.25;
+            weights[3] = 0.15;
+            weights[4] = 0.15;
+        }
+        return;
+    }
+    for (int slot = 0; slot < active_slots; ++slot) {
+        weights[slot] /= sum;
+    }
+    for (int slot = active_slots; slot < 5; ++slot) {
+        weights[slot] = 0.0;
+    }
+}
+
+std::array<double, 5> ComputeNormalStencilWeights(const std::vector<DenseContactPoint>& dense_points,
+                                                  const ReducedSupportAggregate& support,
+                                                  const DenseSubpatch& subpatch,
+                                                  const chrono::ChVector3d& primary_axis_W,
+                                                  const chrono::ChVector3d& secondary_axis_W,
+                                                  int emission_count) {
+    std::array<double, 5> weights{1.0, 0.0, 0.0, 0.0, 0.0};
+    if (emission_count <= 1) {
+        return weights;
+    }
+
+    if (emission_count == 2) {
+        weights = {0.0, 0.5, 0.5, 0.0, 0.0};
+        return weights;
+    }
+
+    const double coverage_ratio = support.coverage_radius / std::max(subpatch.diameter, 1.0e-9);
+    const double primary_spread =
+        ComputeSupportAxisSpread(dense_points, support, support.x_W, primary_axis_W);
+    const double secondary_spread =
+        (emission_count >= 5)
+            ? ComputeSupportAxisSpread(dense_points, support, support.x_W, secondary_axis_W)
+            : 0.0;
+
+    double side_mass = std::clamp(0.24 + 0.40 * coverage_ratio, 0.24, (emission_count >= 5) ? 0.78 : 0.68);
+    if (support.dense_members <= 2) {
+        side_mass = std::min(side_mass, 0.5);
+    }
+    const double center_mass = std::max(0.08, 1.0 - side_mass);
+    weights[0] = center_mass;
+
+    if (emission_count >= 5) {
+        const double spread_total = std::max(primary_spread + secondary_spread, 1.0e-9);
+        const double primary_score = 0.35 + 0.65 * (primary_spread / spread_total);
+        const double secondary_score = 0.35 + 0.65 * (secondary_spread / spread_total);
+        const double score_total = primary_score + secondary_score;
+        const double primary_mass = side_mass * primary_score / score_total;
+        const double secondary_mass = side_mass * secondary_score / score_total;
+        weights[1] = 0.5 * primary_mass;
+        weights[2] = 0.5 * primary_mass;
+        weights[3] = 0.5 * secondary_mass;
+        weights[4] = 0.5 * secondary_mass;
+    } else {
+        weights[1] = 0.5 * side_mass;
+        weights[2] = 0.5 * side_mass;
+    }
+
+    NormalizeStencilWeights(weights, emission_count);
+    return weights;
+}
+
+std::array<double, 5> ComputeTangentialStencilWeights(const std::vector<DenseContactPoint>& dense_points,
+                                                      const ReducedSupportAggregate& support,
+                                                      const DenseSubpatch& subpatch,
+                                                      const chrono::ChVector3d& primary_axis_W,
+                                                      const chrono::ChVector3d& secondary_axis_W,
+                                                      int emission_count) {
+    std::array<double, 5> weights{1.0, 0.0, 0.0, 0.0, 0.0};
+    if (emission_count <= 1) {
+        return weights;
+    }
+
+    const chrono::ChVector3d tangential_force_W =
+        support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
+                                        subpatch.avg_normal_W;
+    const double tangential_force_norm = tangential_force_W.Length();
+    const double total_force_norm = support.allocated_force_W.Length();
+    const double tangential_ratio = tangential_force_norm / std::max(total_force_norm, 1.0e-12);
+    const double coverage_ratio = support.coverage_radius / std::max(subpatch.diameter, 1.0e-9);
+
+    chrono::ChVector3d tangential_dir_W = ProjectToTangentUnit(tangential_force_W, subpatch.avg_normal_W);
+    if (tangential_dir_W.Length2() <= 0.0) {
+        const chrono::ChVector3d tangential_velocity_W =
+            support.v_rel_W - chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W) * subpatch.avg_normal_W;
+        tangential_dir_W = ProjectToTangentUnit(tangential_velocity_W, subpatch.avg_normal_W);
+    }
+    if (tangential_dir_W.Length2() <= 0.0) {
+        tangential_dir_W = primary_axis_W;
+    }
+
+    if (emission_count == 2) {
+        weights = {0.0, 0.5, 0.5, 0.0, 0.0};
+        return weights;
+    }
+
+    const double primary_spread =
+        ComputeSupportAxisSpread(dense_points, support, support.x_W, primary_axis_W);
+    const double secondary_spread =
+        (emission_count >= 5)
+            ? ComputeSupportAxisSpread(dense_points, support, support.x_W, secondary_axis_W)
+            : 0.0;
+    const double primary_align = std::abs(chrono::Vdot(tangential_dir_W, primary_axis_W));
+    const double secondary_align = std::abs(chrono::Vdot(tangential_dir_W, secondary_axis_W));
+
+    double side_mass = std::clamp(0.55 + 0.30 * tangential_ratio + 0.15 * coverage_ratio, 0.55,
+                                  (emission_count >= 5) ? 0.92 : 0.85);
+    if (support.dense_members <= 2) {
+        side_mass = std::min(side_mass, 0.7);
+    }
+    const double center_mass = std::max(0.04, 1.0 - side_mass);
+    weights[0] = center_mass;
+
+    if (emission_count >= 5) {
+        const double spread_total = std::max(primary_spread + secondary_spread, 1.0e-9);
+        const double primary_score =
+            0.20 + 0.35 * (primary_spread / spread_total) + 0.75 * primary_align;
+        const double secondary_score =
+            0.20 + 0.35 * (secondary_spread / spread_total) + 0.75 * secondary_align;
+        const double score_total = primary_score + secondary_score;
+        const double primary_mass = side_mass * primary_score / score_total;
+        const double secondary_mass = side_mass * secondary_score / score_total;
+        weights[1] = 0.5 * primary_mass;
+        weights[2] = 0.5 * primary_mass;
+        weights[3] = 0.5 * secondary_mass;
+        weights[4] = 0.5 * secondary_mass;
+    } else {
+        weights[1] = 0.5 * side_mass;
+        weights[2] = 0.5 * side_mass;
+    }
+
+    NormalizeStencilWeights(weights, emission_count);
+    return weights;
+}
+
+void SeedReactionCaches(const std::vector<DenseContactPoint>& dense_points,
+                        const DenseSubpatch& subpatch,
+                        const ReducedSupportAggregate& support,
+                        double step_size,
+                        ReducedContactPoint& reduced) {
+    reduced.reaction_cache_primary.fill(0.0f);
+    reduced.reaction_cache_secondary.fill(0.0f);
+    reduced.reaction_cache_tertiary.fill(0.0f);
+    reduced.reaction_cache_quaternary.fill(0.0f);
+    reduced.reaction_cache_quinary.fill(0.0f);
+
+    const chrono::ChVector3d primary_axis_W = ProjectToTangentUnit(reduced.stencil_axis_W, reduced.n_W);
+    chrono::ChVector3d secondary_axis_W =
+        ProjectToTangentUnit(reduced.stencil_axis_secondary_W, reduced.n_W);
+    if (secondary_axis_W.Length2() <= 0.0) {
+        secondary_axis_W = ProjectToTangentUnit(chrono::Vcross(reduced.n_W, primary_axis_W), reduced.n_W);
+    }
+
+    const auto normal_weights = ComputeNormalStencilWeights(dense_points, support, subpatch, primary_axis_W,
+                                                            secondary_axis_W, reduced.emission_count);
+    const auto tangential_weights = ComputeTangentialStencilWeights(dense_points, support, subpatch, primary_axis_W,
+                                                                    secondary_axis_W, reduced.emission_count);
+    reduced.stencil_gap_offsets.fill(0.0);
+    const int active_slots =
+        (reduced.emission_count >= 5) ? 5 : ((reduced.emission_count >= 3) ? 3 : ((reduced.emission_count == 2) ? 2 : 1));
+    if (active_slots > 1) {
+        const double uniform_weight = 1.0 / static_cast<double>(active_slots);
+        const double gap_bias_scale = std::min(0.45 * std::abs(reduced.phi_eff), 3.0e-4);
+        for (int slot = 0; slot < active_slots; ++slot) {
+            reduced.stencil_gap_offsets[slot] = gap_bias_scale * (uniform_weight - normal_weights[slot]);
+        }
+    }
+
+    const chrono::ChVector3d normal_force_W = chrono::Vdot(reduced.allocated_force_W, reduced.n_W) * reduced.n_W;
+    const chrono::ChVector3d tangential_force_W = reduced.allocated_force_W - normal_force_W;
+    const double seed_step = std::max(step_size, 0.0);
+
+    auto seed_slot = [&](std::array<float, 6>& reaction_cache, int slot_index) {
+        const chrono::ChVector3d seeded_force_W =
+            normal_weights[slot_index] * normal_force_W + tangential_weights[slot_index] * tangential_force_W;
+        EncodeReactionCacheWorldImpulse(reaction_cache, seed_step * seeded_force_W, reduced.n_W);
+    };
+
+    if (reduced.emission_count <= 1) {
+        seed_slot(reduced.reaction_cache_primary, 0);
+        return;
+    }
+    if (reduced.emission_count == 2) {
+        seed_slot(reduced.reaction_cache_secondary, 1);
+        seed_slot(reduced.reaction_cache_tertiary, 2);
+        return;
+    }
+
+    seed_slot(reduced.reaction_cache_primary, 0);
+    seed_slot(reduced.reaction_cache_secondary, 1);
+    seed_slot(reduced.reaction_cache_tertiary, 2);
+    if (reduced.emission_count >= 5) {
+        seed_slot(reduced.reaction_cache_quaternary, 3);
+        seed_slot(reduced.reaction_cache_quinary, 4);
+    }
 }
 
 void BuildSupportBasis(const chrono::ChVector3d& n_W,
@@ -1085,6 +1346,7 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
         double avg_phi = 0.0;
         double avg_phi_eff = 0.0;
         double avg_phi_eff_load = 0.0;
+        std::vector<std::size_t> member_indices;
 
         chrono::ChVector3d anchor_W = centers_W[cluster];
         bool anchored_to_history = false;
@@ -1111,6 +1373,7 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
             const auto& dense = dense_points[member_index];
             const double load = ProxyLoad(dense);
             const double geom_weight = (load > 1.0e-12) ? load : std::max(1.0e-12, dense.area_weight);
+            member_indices.push_back(member_index);
 
             sum_area += dense.area_weight;
             sum_load += load;
@@ -1188,6 +1451,7 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
         support.allocated_force_W = sum_load * support.n_W;
         support.coverage_radius = max_coverage_radius;
         support.dense_members = count;
+        support.member_indices = std::move(member_indices);
         supports.push_back(support);
     }
 
@@ -1562,6 +1826,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.stencil_half_extent_secondary =
                 ChooseSecondaryStencilHalfExtent(support, subpatch, reduced.emission_count);
             reduced.mu = mu_default;
+            SeedReactionCaches(dense_points, subpatch, support, step_size, reduced);
             out_contacts.push_back(reduced);
         }
 
