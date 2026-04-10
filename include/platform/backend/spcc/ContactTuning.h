@@ -32,6 +32,11 @@ struct CompressedContactConfig {
     int cone_direction_count = 16;
     int dense_micro_friction_rays = 12;
     int reduced_friction_rays = 12;
+    bool enable_dense_micro_solver = true;
+    bool enable_cone_objective = true;
+    bool enable_reinjection_acceptance = true;
+    bool enable_impulse_transport = true;
+    bool enable_sentinel_monitor = true;
     double dense_micro_normal_response_weight = 1.0;
     double dense_micro_tangential_response_weight = 0.35;
     double dense_micro_gap_drive_weight = 1.0;

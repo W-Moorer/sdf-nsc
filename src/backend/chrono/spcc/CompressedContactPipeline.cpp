@@ -729,20 +729,28 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
 
     auto assignments = AssignDensePointsToCenters(dense_points, subpatch, centers_W);
     const auto dense_stats = ComputeDensePlanarStats(dense_points, subpatch);
-    const auto cone_targets = BuildDirectionalSupportTargets(dense_points, subpatch, cfg.cone_direction_count);
+    const auto cone_targets =
+        cfg.enable_cone_objective ? BuildDirectionalSupportTargets(dense_points, subpatch, cfg.cone_direction_count)
+                                  : DirectionalSupportTargets{};
     const auto reinjection_targets =
-        BuildReinjectionDirectionalTargets(dense_points, subpatch, dense_stats, avg_v_rel_W);
+        cfg.enable_reinjection_acceptance
+            ? BuildReinjectionDirectionalTargets(dense_points, subpatch, dense_stats, avg_v_rel_W)
+            : DirectionalSupportTargets{};
     if (!(dense_stats.weight_sum > 1.0e-12)) {
         return;
     }
     const auto original_centers_W = centers_W;
     const auto original_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
-    const auto original_envelopes =
-        BuildClusterDirectionalEnvelopes(dense_points, subpatch, centers_W, assignments, reinjection_targets);
+    const auto original_envelopes = cfg.enable_reinjection_acceptance
+                                        ? BuildClusterDirectionalEnvelopes(dense_points, subpatch, centers_W,
+                                                                           assignments, reinjection_targets)
+                                        : std::vector<ClusterDirectionalEnvelope>{};
     const double original_objective =
         ComputeSupportGeometryObjective(dense_stats, original_stats, cone_targets, subpatch, centers_W);
-    const double original_reinjection_objective =
-        ComputeReinjectionObjective(subpatch, reinjection_targets, centers_W, original_envelopes);
+    const double original_reinjection_objective = cfg.enable_reinjection_acceptance
+                                                      ? ComputeReinjectionObjective(subpatch, reinjection_targets,
+                                                                                    centers_W, original_envelopes)
+                                                      : 0.0;
 
     double min_u = 0.0;
     double max_u = 0.0;
@@ -763,7 +771,9 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
         const double scale_u = ClampScale(dense_std_u / support_std_u, 0.65, 1.65);
         const double scale_v = ClampScale(dense_std_v / support_std_v, 0.65, 1.65);
         const double cone_blend =
-            motion_gate * (has_temporal_history ? 0.10 : ((centers_W.size() <= 2) ? 0.28 : 0.22));
+            cfg.enable_cone_objective
+                ? motion_gate * (has_temporal_history ? 0.10 : ((centers_W.size() <= 2) ? 0.28 : 0.22))
+                : 0.0;
         const double moment_blend = motion_gate * (has_temporal_history ? 0.06 : ((centers_W.size() <= 2) ? 0.18 : 0.14));
 
         ApplyConeDrivenCenterUpdate(cone_targets, subpatch, cone_blend, centers_W);
@@ -784,12 +794,16 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
     }
 
     const auto optimized_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
-    const auto optimized_envelopes =
-        BuildClusterDirectionalEnvelopes(dense_points, subpatch, centers_W, assignments, reinjection_targets);
+    const auto optimized_envelopes = cfg.enable_reinjection_acceptance
+                                         ? BuildClusterDirectionalEnvelopes(dense_points, subpatch, centers_W,
+                                                                            assignments, reinjection_targets)
+                                         : std::vector<ClusterDirectionalEnvelope>{};
     const double optimized_objective =
         ComputeSupportGeometryObjective(dense_stats, optimized_stats, cone_targets, subpatch, centers_W);
-    const double optimized_reinjection_objective =
-        ComputeReinjectionObjective(subpatch, reinjection_targets, centers_W, optimized_envelopes);
+    const double optimized_reinjection_objective = cfg.enable_reinjection_acceptance
+                                                       ? ComputeReinjectionObjective(subpatch, reinjection_targets,
+                                                                                     centers_W, optimized_envelopes)
+                                                       : 0.0;
     const double primary_improvement_tol = std::max(1.0e-4, 0.01 * original_objective);
     const double primary_nonworse_tol = std::max(2.5e-4, 0.03 * original_objective);
     const double reinjection_nonworse_tol =
@@ -802,7 +816,11 @@ void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
     const bool primary_nonworse = optimized_objective <= original_objective + primary_nonworse_tol;
     const bool reinjection_improved =
         optimized_reinjection_objective + reinjection_improve_tol < original_reinjection_objective;
-    if (!((primary_improved && reinjection_nonworse) || (primary_nonworse && reinjection_improved))) {
+    if (cfg.enable_reinjection_acceptance) {
+        if (!((primary_improved && reinjection_nonworse) || (primary_nonworse && reinjection_improved))) {
+            centers_W = original_centers_W;
+        }
+    } else if (!primary_improved) {
         centers_W = original_centers_W;
     }
 }
@@ -921,6 +939,25 @@ chrono::ChVector3d ComputeReducedMoment(const std::vector<ReducedSupportAggregat
         moment_W += chrono::Vcross(support.x_W - origin_W, support.allocated_force_W);
     }
     return moment_W;
+}
+
+ReferenceWrench BuildProxyReference(const std::vector<DenseContactPoint>& dense_points,
+                                    const DenseSubpatch& subpatch,
+                                    const chrono::ChVector3d& origin_W) {
+    ReferenceWrench reference;
+    reference.origin_W = origin_W;
+    reference.force_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+    reference.moment_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+    reference.total_load = 0.0;
+    for (const auto point_index : subpatch.members) {
+        const auto& point = dense_points[point_index];
+        const double load = ProxyLoad(point);
+        const chrono::ChVector3d force_W = load * point.n_W;
+        reference.force_W += force_W;
+        reference.moment_W += chrono::Vcross(point.x_W - origin_W, force_W);
+        reference.total_load += std::max(0.0, chrono::Vdot(force_W, subpatch.avg_normal_W));
+    }
+    return reference;
 }
 
 chrono::ChVector3d ComputeReferenceCoP(const ReferenceWrench& reference, const DenseSubpatch& subpatch) {
@@ -1806,7 +1843,8 @@ bool BuildTransportedImpulseWarmStart(const std::vector<ReducedSupportAggregate>
                                       std::vector<chrono::ChVector3d>& out_forces_W) {
     out_loads.clear();
     out_forces_W.clear();
-    if (!previous || !previous->has_impulse_wrench || supports.empty() || !(transport_alpha > 0.0)) {
+    if (!cfg.enable_impulse_transport || !previous || !previous->has_impulse_wrench || supports.empty() ||
+        !(transport_alpha > 0.0)) {
         return false;
     }
 
@@ -1956,7 +1994,8 @@ TransportBlendWeights ComputeSupportTransportBlend(const CompressedContactConfig
                                                    const ReducedSupportAggregate& support,
                                                    const SupportTransportSeed& previous_seed) {
     TransportBlendWeights blend;
-    if (!(previous_seed.confidence > 0.0) || !(cfg.temporal_force_transport_blend > 0.0)) {
+    if (!cfg.enable_impulse_transport || !(previous_seed.confidence > 0.0) ||
+        !(cfg.temporal_force_transport_blend > 0.0)) {
         return blend;
     }
 
@@ -2340,7 +2379,7 @@ double ComputeSubpatchGapError(const DenseSubpatch& subpatch,
                                const RigidBodyStateW& master_state,
                                const FirstOrderSDF& sdf,
                                const CompressedContactConfig& cfg) {
-    if (supports.empty()) {
+    if (!cfg.enable_sentinel_monitor || supports.empty()) {
         return 0.0;
     }
 
@@ -2520,17 +2559,24 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         int target_points = std::min(cfg_.max_reduced_points_per_patch,
                                      (subpatch.members.size() <= 1) ? 1 : ((subpatch.members.size() <= 2) ? 2 : 3));
         DenseMicroReferenceResult dense_micro_reference;
-        const auto dense_micro_options = MakeDenseMicroSolverOptions(cfg_);
-        LocalWrenchAllocator::BuildDenseMicroReference(dense_points, subpatch.members, subpatch.centroid_W,
-                                                       mu_default, step_size, dense_micro_options,
-                                                       dense_micro_reference);
+        if (cfg_.enable_dense_micro_solver) {
+            const auto dense_micro_options = MakeDenseMicroSolverOptions(cfg_);
+            LocalWrenchAllocator::BuildDenseMicroReference(dense_points, subpatch.members, subpatch.centroid_W,
+                                                           mu_default, step_size, dense_micro_options,
+                                                           dense_micro_reference);
+        } else {
+            dense_micro_reference.reference = BuildProxyReference(dense_points, subpatch, subpatch.centroid_W);
+            dense_micro_reference.force_residual = 0.0;
+            dense_micro_reference.moment_residual = 0.0;
+            dense_micro_reference.feasible = true;
+        }
         const ReferenceWrench& dense_reference = dense_micro_reference.reference;
         max_dense_micro_force_residual =
             std::max(max_dense_micro_force_residual, dense_micro_reference.force_residual);
         max_dense_micro_moment_residual =
             std::max(max_dense_micro_moment_residual, dense_micro_reference.moment_residual);
         double temporal_reference_alpha = 0.0;
-        if (matched_previous_state) {
+        if (cfg_.enable_impulse_transport && matched_previous_state) {
             temporal_reference_alpha = cfg_.temporal_reference_blend *
                                        ComputeSubpatchMatchConfidence(cfg_, subpatch, *matched_previous_state) *
                                        ComputeSubpatchMotionBlend(cfg_, dense_points, subpatch) *
@@ -2561,7 +2607,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
 
             if (!supports.empty()) {
                 const double transport_alpha =
-                    (matched_previous_state && matched_previous_state->has_impulse_wrench)
+                    (cfg_.enable_impulse_transport && matched_previous_state && matched_previous_state->has_impulse_wrench)
                         ? (cfg_.temporal_force_transport_blend *
                            ComputeSubpatchMatchConfidence(cfg_, subpatch, *matched_previous_state) *
                            ComputeSubpatchMotionBlend(cfg_, dense_points, subpatch) *

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -84,8 +85,15 @@ struct ScenarioDefinition {
 
 struct ScenarioResult {
     ScenarioDefinition definition;
+    std::string variant_name;
+    std::string variant_description;
     CompressionValidationReport report;
     bool pass = false;
+};
+
+struct VariantDefinition {
+    std::string name;
+    std::string description;
 };
 
 void BuildBasis(const chrono::ChVector3d& n_W,
@@ -159,6 +167,65 @@ CompressedContactConfig MakeValidationConfig() {
     cfg.max_cop_error = 2.5e-3;
     cfg.max_gap_error = 0.25;
     cfg.predictive_gap = true;
+    return cfg;
+}
+
+std::vector<VariantDefinition> BuildVariants() {
+    return {
+        {"full", "full compressed contact pipeline"},
+        {"fixed4", "fixed four-point reduction without subpatch refinement"},
+        {"single_patch", "single-patch adaptive reduction without subpatch refinement"},
+        {"no_dense_micro", "ablation without dense micro-solver"},
+        {"no_eC", "ablation without cone/support-function objective"},
+        {"no_sentinel", "ablation without sentinel gap monitoring"},
+        {"no_impulse_transport", "ablation without temporal impulse transport"},
+        {"no_reinj_accept", "ablation without reinjection-aware Q acceptance"},
+    };
+}
+
+CompressedContactConfig ApplyVariant(const CompressedContactConfig& base_cfg, const std::string& variant_name) {
+    CompressedContactConfig cfg = base_cfg;
+    if (variant_name == "full") {
+        return cfg;
+    }
+    if (variant_name == "fixed4") {
+        cfg.max_subpatch_depth = 0;
+        cfg.max_subpatch_diameter = std::max(cfg.max_patch_diameter, 1.0);
+        cfg.max_reduced_points_per_patch = 4;
+        return cfg;
+    }
+    if (variant_name == "single_patch") {
+        cfg.max_subpatch_depth = 0;
+        cfg.max_subpatch_diameter = std::max(cfg.max_patch_diameter, 1.0);
+        return cfg;
+    }
+    if (variant_name == "no_dense_micro") {
+        cfg.enable_dense_micro_solver = false;
+        return cfg;
+    }
+    if (variant_name == "no_eC") {
+        cfg.enable_cone_objective = false;
+        cfg.max_cone_error = 0.0;
+        cfg.cone_direction_count = 0;
+        return cfg;
+    }
+    if (variant_name == "no_sentinel") {
+        cfg.enable_sentinel_monitor = false;
+        cfg.sentinel_spacing = 0.0;
+        cfg.sentinel_margin = 0.0;
+        cfg.max_gap_error = 0.0;
+        return cfg;
+    }
+    if (variant_name == "no_impulse_transport") {
+        cfg.enable_impulse_transport = false;
+        cfg.temporal_reference_blend = 0.0;
+        cfg.temporal_force_transport_blend = 0.0;
+        return cfg;
+    }
+    if (variant_name == "no_reinj_accept") {
+        cfg.enable_reinjection_acceptance = false;
+        return cfg;
+    }
     return cfg;
 }
 
@@ -305,7 +372,7 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
     }
 
     std::ofstream out(path);
-    out << "scenario,description,total_samples,candidate_count,dense_count,reduced_count,compression_ratio,"
+    out << "scenario,variant,variant_description,description,total_samples,candidate_count,dense_count,reduced_count,compression_ratio,"
            "patch_count,subpatch_count,expected_patch_count,bvh_nodes_visited,bvh_nodes_pruned_obb,bvh_nodes_pruned_sdf,"
            "bvh_leaf_samples_tested,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,max_subpatch_plane_error,"
            "max_subpatch_second_moment_error,max_subpatch_cone_error,max_subpatch_gap_error,"
@@ -318,6 +385,8 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
         const double reduced_count = static_cast<double>(result.report.stats.reduced_count);
         const double ratio = (dense_count > 0.0) ? (reduced_count / dense_count) : 0.0;
         out << result.definition.name << ','
+            << result.variant_name << ','
+            << '"' << result.variant_description << '"' << ','
             << '"' << result.definition.description << '"' << ','
             << result.report.stats.total_samples << ','
             << result.report.stats.candidate_count << ','
@@ -360,7 +429,9 @@ void PrintScenarioResult(const ScenarioResult& result) {
     const double reduced_count = static_cast<double>(result.report.stats.reduced_count);
     const double ratio = (dense_count > 0.0) ? (reduced_count / dense_count) : 0.0;
 
-    std::cout << result.definition.name << " : " << (result.pass ? "PASS" : "FAIL") << '\n';
+    std::cout << result.definition.name << " [" << result.variant_name << "]"
+              << " : " << (result.pass ? "PASS" : "FAIL") << '\n';
+    std::cout << "  variant         : " << result.variant_description << '\n';
     std::cout << "  desc            : " << result.definition.description << '\n';
     std::cout << "  dense query     : total=" << result.report.stats.total_samples
               << " candidates=" << result.report.stats.candidate_count
@@ -406,6 +477,7 @@ void PrintScenarioResult(const ScenarioResult& result) {
 int main(int argc, char* argv[]) {
     std::string csv_path = "data/generated/compressed_contact_validation.csv";
     std::string scenario_filter = "all";
+    std::string variant_filter = "full";
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
@@ -413,10 +485,13 @@ int main(int argc, char* argv[]) {
             csv_path = argv[++i];
         } else if (arg == "--scenario" && i + 1 < argc) {
             scenario_filter = argv[++i];
+        } else if (arg == "--variant" && i + 1 < argc) {
+            variant_filter = argv[++i];
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0]
-                      << " [--scenario all|flat_square|tilted_square|long_strip|dual_patch|cylinder_band]"
-                      << " [--csv output.csv]\n";
+                       << " [--scenario all|flat_square|tilted_square|long_strip|dual_patch|cylinder_band]"
+                       << " [--variant full|all|fixed4|single_patch|no_dense_micro|no_eC|no_sentinel|"
+                          "no_impulse_transport|no_reinj_accept] [--csv output.csv]\n";
             return 0;
         } else {
             std::cerr << "Unknown argument: " << arg << '\n';
@@ -424,40 +499,51 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    auto scenarios = BuildScenarios();
+    const auto variants = BuildVariants();
     std::vector<ScenarioResult> results;
 
-    for (auto& scenario : scenarios) {
-        if (scenario_filter != "all" && scenario_filter != scenario.name) {
+    for (const auto& variant : variants) {
+        if (variant_filter != "all" && variant_filter != variant.name) {
             continue;
         }
-
-        ScenarioResult result;
-        result.definition = std::move(scenario);
-        CompressedContactValidation::Validate(result.definition.cfg,
-                                              result.definition.samples,
-                                              result.definition.master_state,
-                                              result.definition.slave_state,
-                                              *result.definition.sdf,
-                                              result.definition.mu_default,
-                                              result.definition.step_size,
-                                              result.report);
-        result.pass = IsPass(result.definition, result.report);
-        PrintScenarioResult(result);
-        results.push_back(std::move(result));
+        auto scenarios = BuildScenarios();
+        for (auto& scenario : scenarios) {
+            if (scenario_filter != "all" && scenario_filter != scenario.name) {
+                continue;
+            }
+            ScenarioResult result;
+            result.definition = std::move(scenario);
+            result.definition.cfg = ApplyVariant(result.definition.cfg, variant.name);
+            result.variant_name = variant.name;
+            result.variant_description = variant.description;
+            CompressedContactValidation::Validate(result.definition.cfg,
+                                                  result.definition.samples,
+                                                  result.definition.master_state,
+                                                  result.definition.slave_state,
+                                                  *result.definition.sdf,
+                                                  result.definition.mu_default,
+                                                  result.definition.step_size,
+                                                  result.report);
+            result.pass = IsPass(result.definition, result.report);
+            PrintScenarioResult(result);
+            results.push_back(std::move(result));
+        }
     }
 
     if (results.empty()) {
-        std::cerr << "No scenarios matched filter: " << scenario_filter << '\n';
+        std::cerr << "No scenario/variant matched filter: scenario=" << scenario_filter
+                  << " variant=" << variant_filter << '\n';
         return 1;
     }
 
     WriteSummaryCsv(csv_path, results);
     std::cout << "summary_csv : " << csv_path << '\n';
 
-    for (const auto& result : results) {
-        if (!result.pass) {
-            return 2;
+    if (variant_filter == "full") {
+        for (const auto& result : results) {
+            if (!result.pass) {
+                return 2;
+            }
         }
     }
     return 0;

@@ -141,6 +141,11 @@ struct ScenarioSummary {
     int contact_steps = 0;
 };
 
+struct VariantDefinition {
+    std::string name;
+    std::string description;
+};
+
 struct TemporalCoherenceMetrics {
     double hausdorff = 0.0;
     double mean_drift = 0.0;
@@ -315,6 +320,65 @@ CompressedContactConfig MakeDynamicConfig() {
     cfg.max_cop_error = 2.5e-3;
     cfg.max_gap_error = 0.05;
     cfg.predictive_gap = true;
+    return cfg;
+}
+
+std::vector<VariantDefinition> BuildVariants() {
+    return {
+        {"full", "full compressed contact pipeline"},
+        {"fixed4", "fixed four-point reduction without subpatch refinement"},
+        {"single_patch", "single-patch adaptive reduction without subpatch refinement"},
+        {"no_dense_micro", "ablation without dense micro-solver"},
+        {"no_eC", "ablation without cone/support-function objective"},
+        {"no_sentinel", "ablation without sentinel gap monitoring"},
+        {"no_impulse_transport", "ablation without temporal impulse transport"},
+        {"no_reinj_accept", "ablation without reinjection-aware Q acceptance"},
+    };
+}
+
+CompressedContactConfig ApplyVariant(const CompressedContactConfig& base_cfg, const std::string& variant_name) {
+    CompressedContactConfig cfg = base_cfg;
+    if (variant_name == "full") {
+        return cfg;
+    }
+    if (variant_name == "fixed4") {
+        cfg.max_subpatch_depth = 0;
+        cfg.max_subpatch_diameter = std::max(cfg.max_patch_diameter, 1.0);
+        cfg.max_reduced_points_per_patch = 4;
+        return cfg;
+    }
+    if (variant_name == "single_patch") {
+        cfg.max_subpatch_depth = 0;
+        cfg.max_subpatch_diameter = std::max(cfg.max_patch_diameter, 1.0);
+        return cfg;
+    }
+    if (variant_name == "no_dense_micro") {
+        cfg.enable_dense_micro_solver = false;
+        return cfg;
+    }
+    if (variant_name == "no_eC") {
+        cfg.enable_cone_objective = false;
+        cfg.max_cone_error = 0.0;
+        cfg.cone_direction_count = 0;
+        return cfg;
+    }
+    if (variant_name == "no_sentinel") {
+        cfg.enable_sentinel_monitor = false;
+        cfg.sentinel_spacing = 0.0;
+        cfg.sentinel_margin = 0.0;
+        cfg.max_gap_error = 0.0;
+        return cfg;
+    }
+    if (variant_name == "no_impulse_transport") {
+        cfg.enable_impulse_transport = false;
+        cfg.temporal_reference_blend = 0.0;
+        cfg.temporal_force_transport_blend = 0.0;
+        return cfg;
+    }
+    if (variant_name == "no_reinj_accept") {
+        cfg.enable_reinjection_acceptance = false;
+        return cfg;
+    }
     return cfg;
 }
 
@@ -646,6 +710,7 @@ SimulationInstance MakeSimulationInstance(const DynamicsScenario& scenario, Cont
 
 void WriteCsv(const std::string& path,
               const std::string& scenario_name,
+              const std::string& variant_name,
               const std::vector<StepMetrics>& steps) {
     if (path.empty()) {
         return;
@@ -659,7 +724,7 @@ void WriteCsv(const std::string& path,
     const bool append = fs::exists(out_path);
     std::ofstream out(path, append ? std::ios::app : std::ios::trunc);
     if (!append) {
-        out << "scenario,time,epsF,epsM,epsCoP,epsGap,pos_error,vel_error,ang_vel_error,linear_impulse_error,"
+        out << "scenario,variant,time,epsF,epsM,epsCoP,epsGap,pos_error,vel_error,ang_vel_error,linear_impulse_error,"
                "angular_impulse_error,energy_dense,energy_reduced,energy_drift_diff,temporal_hausdorff,"
                "temporal_mean_drift,support_churn,patch_count,subpatch_count,dense_contacts,reduced_contacts,"
                "max_subpatch_plane_error,max_subpatch_second_moment_error,max_subpatch_cone_error,"
@@ -669,6 +734,7 @@ void WriteCsv(const std::string& path,
     }
     for (const auto& step : steps) {
         out << scenario_name << ','
+            << variant_name << ','
             << step.time << ','
             << step.epsF << ','
             << step.epsM << ','
@@ -703,6 +769,7 @@ void WriteCsv(const std::string& path,
 }
 
 ScenarioSummary RunScenario(const DynamicsScenario& scenario,
+                            const std::string& variant_name,
                             const std::string& csv_path) {
     auto dense_sim = MakeSimulationInstance(scenario, ContactMode::DenseReference);
     auto reduced_sim = MakeSimulationInstance(scenario, ContactMode::ReducedCompressed);
@@ -815,7 +882,7 @@ ScenarioSummary RunScenario(const DynamicsScenario& scenario,
         }
     }
 
-    WriteCsv(csv_path, scenario.name, steps);
+    WriteCsv(csv_path, scenario.name, variant_name, steps);
     return summary;
 }
 
@@ -831,6 +898,7 @@ std::vector<DynamicsScenario> BuildScenarios() {
 int main(int argc, char* argv[]) {
     std::string csv_path = "data/generated/compressed_contact_dynamics.csv";
     std::string scenario_filter = "all";
+    std::string variant_filter = "full";
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
@@ -838,9 +906,13 @@ int main(int argc, char* argv[]) {
             csv_path = argv[++i];
         } else if (arg == "--scenario" && i + 1 < argc) {
             scenario_filter = argv[++i];
+        } else if (arg == "--variant" && i + 1 < argc) {
+            variant_filter = argv[++i];
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0]
-                      << " [--scenario all|tilted_plate_impact|tilted_plate_slide] [--csv output.csv]\n";
+                      << " [--scenario all|tilted_plate_impact|tilted_plate_slide]"
+                      << " [--variant full|all|fixed4|single_patch|no_dense_micro|no_eC|no_sentinel|"
+                         "no_impulse_transport|no_reinj_accept] [--csv output.csv]\n";
             return 0;
         } else {
             std::cerr << "Unknown argument: " << arg << '\n';
@@ -855,38 +927,53 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const auto scenarios = BuildScenarios();
-    for (const auto& scenario : scenarios) {
-        if (scenario_filter != "all" && scenario_filter != scenario.name) {
+    const auto variants = BuildVariants();
+    bool ran_any = false;
+    for (const auto& variant : variants) {
+        if (variant_filter != "all" && variant_filter != variant.name) {
             continue;
         }
+        auto scenarios = BuildScenarios();
+        for (auto& scenario : scenarios) {
+            if (scenario_filter != "all" && scenario_filter != scenario.name) {
+                continue;
+            }
+            scenario.cfg = ApplyVariant(scenario.cfg, variant.name);
+            ran_any = true;
+            const auto summary = RunScenario(scenario, variant.name, csv_path);
+            std::cout << scenario.name << " [" << variant.name << "]\n";
+            std::cout << "  variant               : " << variant.description << '\n';
+            std::cout << "  desc                  : " << scenario.description << '\n';
+            std::cout << "  max_epsF              : " << std::setprecision(8) << summary.max_epsF << '\n';
+            std::cout << "  max_epsM              : " << summary.max_epsM << '\n';
+            std::cout << "  max_epsCoP            : " << summary.max_epsCoP << '\n';
+            std::cout << "  max_epsGap            : " << summary.max_epsGap << '\n';
+            std::cout << "  max_pos_error         : " << std::setprecision(8) << summary.max_pos_error << '\n';
+            std::cout << "  max_vel_error         : " << summary.max_vel_error << '\n';
+            std::cout << "  max_ang_vel_error     : " << summary.max_ang_vel_error << '\n';
+            std::cout << "  max_linear_imp_error  : " << summary.max_linear_impulse_error << '\n';
+            std::cout << "  max_angular_imp_error : " << summary.max_angular_impulse_error << '\n';
+            std::cout << "  max_energy_drift_diff : " << summary.max_energy_drift_diff << '\n';
+            std::cout << "  max_temporal_H        : " << summary.max_temporal_hausdorff << '\n';
+            std::cout << "  max_temporal_mean     : " << summary.max_temporal_mean_drift << '\n';
+            std::cout << "  max_support_churn     : " << summary.max_support_churn << '\n';
+            std::cout << "  contact_steps         : " << summary.contact_steps << '\n';
+            std::cout << "  contact_max_pos_error : " << summary.max_contact_pos_error << '\n';
+            std::cout << "  contact_max_vel_error : " << summary.max_contact_vel_error << '\n';
+            std::cout << "  contact_max_ang_error : " << summary.max_contact_ang_vel_error << '\n';
+            std::cout << "  contact_max_lin_imp   : " << summary.max_contact_linear_impulse_error << '\n';
+            std::cout << "  contact_max_ang_imp   : " << summary.max_contact_angular_impulse_error << '\n';
+            std::cout << "  contact_max_Ediff     : " << summary.max_contact_energy_drift_diff << '\n';
+            std::cout << "  contact_max_H         : " << summary.max_contact_temporal_hausdorff << '\n';
+            std::cout << "  contact_max_mean      : " << summary.max_contact_temporal_mean_drift << '\n';
+            std::cout << "  contact_max_churn     : " << summary.max_contact_support_churn << '\n';
+        }
+    }
 
-        const auto summary = RunScenario(scenario, csv_path);
-        std::cout << scenario.name << '\n';
-        std::cout << "  desc                  : " << scenario.description << '\n';
-        std::cout << "  max_epsF              : " << std::setprecision(8) << summary.max_epsF << '\n';
-        std::cout << "  max_epsM              : " << summary.max_epsM << '\n';
-        std::cout << "  max_epsCoP            : " << summary.max_epsCoP << '\n';
-        std::cout << "  max_epsGap            : " << summary.max_epsGap << '\n';
-        std::cout << "  max_pos_error         : " << std::setprecision(8) << summary.max_pos_error << '\n';
-        std::cout << "  max_vel_error         : " << summary.max_vel_error << '\n';
-        std::cout << "  max_ang_vel_error     : " << summary.max_ang_vel_error << '\n';
-        std::cout << "  max_linear_imp_error  : " << summary.max_linear_impulse_error << '\n';
-        std::cout << "  max_angular_imp_error : " << summary.max_angular_impulse_error << '\n';
-        std::cout << "  max_energy_drift_diff : " << summary.max_energy_drift_diff << '\n';
-        std::cout << "  max_temporal_H        : " << summary.max_temporal_hausdorff << '\n';
-        std::cout << "  max_temporal_mean     : " << summary.max_temporal_mean_drift << '\n';
-        std::cout << "  max_support_churn     : " << summary.max_support_churn << '\n';
-        std::cout << "  contact_steps         : " << summary.contact_steps << '\n';
-        std::cout << "  contact_max_pos_error : " << summary.max_contact_pos_error << '\n';
-        std::cout << "  contact_max_vel_error : " << summary.max_contact_vel_error << '\n';
-        std::cout << "  contact_max_ang_error : " << summary.max_contact_ang_vel_error << '\n';
-        std::cout << "  contact_max_lin_imp   : " << summary.max_contact_linear_impulse_error << '\n';
-        std::cout << "  contact_max_ang_imp   : " << summary.max_contact_angular_impulse_error << '\n';
-        std::cout << "  contact_max_Ediff     : " << summary.max_contact_energy_drift_diff << '\n';
-        std::cout << "  contact_max_H         : " << summary.max_contact_temporal_hausdorff << '\n';
-        std::cout << "  contact_max_mean      : " << summary.max_contact_temporal_mean_drift << '\n';
-        std::cout << "  contact_max_churn     : " << summary.max_contact_support_churn << '\n';
+    if (!ran_any) {
+        std::cerr << "No scenario/variant matched filter: scenario=" << scenario_filter
+                  << " variant=" << variant_filter << '\n';
+        return 1;
     }
 
     std::cout << "dynamics_csv : " << csv_path << '\n';

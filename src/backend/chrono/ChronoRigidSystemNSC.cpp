@@ -92,6 +92,17 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
         GetScopedEnvInt(env_prefix, "DENSE_MICRO_FRICTION_RAYS", cfg.dense_micro_friction_rays);
     cfg.reduced_friction_rays =
         GetScopedEnvInt(env_prefix, "REDUCED_FRICTION_RAYS", cfg.reduced_friction_rays);
+    cfg.enable_dense_micro_solver =
+        (GetScopedEnvDouble(env_prefix, "ENABLE_DENSE_MICRO_SOLVER", cfg.enable_dense_micro_solver ? 1.0 : 0.0) > 0.5);
+    cfg.enable_cone_objective =
+        (GetScopedEnvDouble(env_prefix, "ENABLE_CONE_OBJECTIVE", cfg.enable_cone_objective ? 1.0 : 0.0) > 0.5);
+    cfg.enable_reinjection_acceptance = (GetScopedEnvDouble(
+                                             env_prefix, "ENABLE_REINJECTION_ACCEPTANCE",
+                                             cfg.enable_reinjection_acceptance ? 1.0 : 0.0) > 0.5);
+    cfg.enable_impulse_transport =
+        (GetScopedEnvDouble(env_prefix, "ENABLE_IMPULSE_TRANSPORT", cfg.enable_impulse_transport ? 1.0 : 0.0) > 0.5);
+    cfg.enable_sentinel_monitor =
+        (GetScopedEnvDouble(env_prefix, "ENABLE_SENTINEL_MONITOR", cfg.enable_sentinel_monitor ? 1.0 : 0.0) > 0.5);
     cfg.dense_micro_normal_response_weight =
         GetScopedEnvDouble(env_prefix, "DENSE_MICRO_NORMAL_RESPONSE_WEIGHT", cfg.dense_micro_normal_response_weight);
     cfg.dense_micro_tangential_response_weight = GetScopedEnvDouble(
