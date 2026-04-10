@@ -37,6 +37,7 @@ struct CompressedContactConfig {
     double temporal_reference_blend = 0.0;
     double temporal_force_transport_blend = 0.5;
     double temporal_slip_velocity_scale = 0.05;
+    double temporal_approach_velocity_scale = 0.05;
     double temporal_separation_velocity_scale = 0.02;
     double max_wrench_error = 0.05;
     double max_cop_error = 0.001;

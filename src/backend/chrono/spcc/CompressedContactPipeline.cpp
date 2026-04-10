@@ -239,16 +239,27 @@ double ComputeSubpatchMotionBlend(const CompressedContactConfig& cfg,
                                   const std::vector<DenseContactPoint>& dense_points,
                                   const DenseSubpatch& subpatch) {
     const chrono::ChVector3d avg_v_rel_W = ComputeAverageRelativeVelocity(dense_points, subpatch);
+    const double approach_speed = std::max(0.0, -chrono::Vdot(avg_v_rel_W, subpatch.avg_normal_W));
     const double separation_speed = std::max(0.0, chrono::Vdot(avg_v_rel_W, subpatch.avg_normal_W));
     const chrono::ChVector3d tangential_v_W =
         avg_v_rel_W - chrono::Vdot(avg_v_rel_W, subpatch.avg_normal_W) * subpatch.avg_normal_W;
     const double tangential_speed = tangential_v_W.Length();
 
+    const double approach_weight =
+        1.0 / (1.0 + approach_speed / std::max(cfg.temporal_approach_velocity_scale, 1.0e-6));
     const double normal_weight =
         1.0 / (1.0 + separation_speed / std::max(cfg.temporal_separation_velocity_scale, 1.0e-6));
     const double tangential_weight =
         1.0 / (1.0 + tangential_speed / std::max(cfg.temporal_slip_velocity_scale, 1.0e-6));
-    return Clamp01(std::sqrt(std::max(0.0, normal_weight * tangential_weight)));
+    return Clamp01(std::sqrt(std::max(0.0, approach_weight * normal_weight * tangential_weight)));
+}
+
+double ComputeReferenceLoadBlend(const ReferenceWrench& current, const TemporalSubpatchState& previous) {
+    const double current_load = std::max(0.0, current.total_load);
+    const double previous_load = std::max(0.0, previous.reference_total_load);
+    const double load_ratio =
+        std::min(current_load, previous_load) / std::max({current_load, previous_load, 1.0e-9});
+    return std::sqrt(load_ratio);
 }
 
 ReferenceWrench BlendTemporalReference(const ReferenceWrench& current,
@@ -391,14 +402,23 @@ TransportBlendWeights ComputeSupportTransportBlend(const CompressedContactConfig
     }
 
     const double base = Clamp01(cfg.temporal_force_transport_blend * previous_seed.confidence);
+    const double approach_speed = std::max(0.0, -chrono::Vdot(support.v_rel_W, support.n_W));
     const double separation_speed = std::max(0.0, chrono::Vdot(support.v_rel_W, support.n_W));
     const chrono::ChVector3d tangential_v_W =
         support.v_rel_W - chrono::Vdot(support.v_rel_W, support.n_W) * support.n_W;
     const double tangential_speed = tangential_v_W.Length();
+    const double approach_weight =
+        1.0 / (1.0 + approach_speed / std::max(cfg.temporal_approach_velocity_scale, 1.0e-6));
     const double normal_weight =
         1.0 / (1.0 + separation_speed / std::max(cfg.temporal_separation_velocity_scale, 1.0e-6));
     double tangential_weight =
         1.0 / (1.0 + tangential_speed / std::max(cfg.temporal_slip_velocity_scale, 1.0e-6));
+
+    const double current_load = std::max(0.0, support.allocated_load);
+    const double previous_load = std::max(0.0, previous_seed.load);
+    const double load_ratio =
+        std::min(current_load, previous_load) / std::max({current_load, previous_load, 1.0e-9});
+    const double load_weight = std::sqrt(load_ratio);
 
     const chrono::ChVector3d previous_tangential_force_W =
         previous_seed.force_W - chrono::Vdot(previous_seed.force_W, support.n_W) * support.n_W;
@@ -409,9 +429,9 @@ TransportBlendWeights ComputeSupportTransportBlend(const CompressedContactConfig
         tangential_weight *= Clamp01(0.5 * (1.0 + chrono::Vdot(expected_friction_dir_W, previous_force_dir_W)));
     }
 
-    blend.scalar = Clamp01(base * normal_weight);
-    blend.normal = Clamp01(base * normal_weight);
-    blend.tangential = Clamp01(base * tangential_weight);
+    blend.scalar = Clamp01(base * approach_weight * normal_weight * load_weight);
+    blend.normal = Clamp01(base * approach_weight * normal_weight * load_weight);
+    blend.tangential = Clamp01(base * approach_weight * tangential_weight * load_weight);
     return blend;
 }
 
@@ -919,7 +939,8 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         if (matched_previous_state) {
             temporal_reference_alpha = cfg_.temporal_reference_blend *
                                        ComputeSubpatchMatchConfidence(cfg_, subpatch, *matched_previous_state) *
-                                       ComputeSubpatchMotionBlend(cfg_, dense_points, subpatch);
+                                       ComputeSubpatchMotionBlend(cfg_, dense_points, subpatch) *
+                                       ComputeReferenceLoadBlend(dense_reference, *matched_previous_state);
         }
         const ReferenceWrench reference =
             BlendTemporalReference(dense_reference, matched_previous_state, temporal_reference_alpha);
