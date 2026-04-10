@@ -370,6 +370,56 @@ TEST(CompressedContactPipelineTest, UsesExpandedStencilForHighShearWideSupport) 
     EXPECT_GT(reduced.front().stencil_half_extent, 0.0);
 }
 
+TEST(CompressedContactPipelineTest, OptimizesTwoPointSupportAlongPrincipalAxis) {
+    platform::backend::spcc::CompressedContactPipeline pipeline;
+    platform::backend::spcc::CompressedContactConfig cfg;
+    cfg.delta_on = 0.02;
+    cfg.delta_off = 0.03;
+    cfg.max_active_dense = 0;
+    cfg.patch_radius = 0.4;
+    cfg.normal_cos_min = 0.95;
+    cfg.max_patch_diameter = 0.6;
+    cfg.max_subpatch_diameter = 0.0;
+    cfg.max_plane_error = 0.0;
+    cfg.max_second_moment_error = 0.0;
+    cfg.max_cone_error = 0.0;
+    cfg.sentinel_spacing = 0.0;
+    cfg.sentinel_margin = 0.0;
+    cfg.max_subpatch_depth = 0;
+    cfg.min_dense_points_per_subpatch = 0;
+    cfg.max_reduced_points_per_patch = 2;
+    pipeline.Configure(cfg);
+
+    std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
+    for (int ix = -10; ix <= 10; ++ix) {
+        for (int iz = -2; iz <= 2; ++iz) {
+            platform::backend::spcc::DenseSurfaceSample sample;
+            sample.xi_slave_S = chrono::ChVector3d(0.02 * ix, -0.01, 0.01 * iz);
+            sample.normal_slave_S = chrono::ChVector3d(0.0, 1.0, 0.0);
+            sample.area_weight = 1.0;
+            samples.push_back(sample);
+        }
+    }
+    pipeline.SetSlaveSurfaceSamples(samples);
+
+    PlaneSDF sdf;
+    const auto master_state = MakeIdentityState();
+    const auto slave_state = MakeIdentityState();
+
+    std::vector<platform::backend::spcc::ReducedContactPoint> reduced;
+    platform::backend::spcc::CompressionStats stats;
+    pipeline.BuildReducedContacts(master_state, slave_state, sdf, 0.2, 1.0e-3, reduced, &stats);
+
+    ASSERT_EQ(reduced.size(), 2u);
+    const double mean_x = 0.5 * (reduced[0].x_W.x() + reduced[1].x_W.x());
+    const double mean_z = 0.5 * (reduced[0].x_W.z() + reduced[1].x_W.z());
+    const double spread_x = std::abs(reduced[0].x_W.x() - reduced[1].x_W.x());
+    const double spread_z = std::abs(reduced[0].x_W.z() - reduced[1].x_W.z());
+    EXPECT_NEAR(mean_x, 0.0, 3.5e-2);
+    EXPECT_NEAR(mean_z, 0.0, 5.0e-3);
+    EXPECT_GT(spread_x, 4.0 * spread_z);
+}
+
 TEST(CompressedContactPipelineTest, UsesFivePointStencilForExtremeShearWideSupport) {
     platform::backend::spcc::CompressedContactPipeline pipeline;
     platform::backend::spcc::CompressedContactConfig cfg;

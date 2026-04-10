@@ -64,8 +64,21 @@ struct SecondMoment2D {
     double vv = 0.0;
 };
 
+struct PlanarStats2D {
+    double mean_u = 0.0;
+    double mean_v = 0.0;
+    double cov_uu = 0.0;
+    double cov_uv = 0.0;
+    double cov_vv = 0.0;
+    double weight_sum = 0.0;
+};
+
 double Clamp01(double value) {
     return std::clamp(value, 0.0, 1.0);
+}
+
+double ClampScale(double value, double min_value, double max_value) {
+    return std::clamp(value, min_value, max_value);
 }
 
 double ProxyLoad(const DenseContactPoint& point) {
@@ -134,6 +147,19 @@ chrono::ChVector3d ProjectToTangentUnit(const chrono::ChVector3d& v_W, const chr
         return chrono::ChVector3d(0.0, 0.0, 0.0);
     }
     return tangent_W * (1.0 / tangent_len);
+}
+
+void ProjectToSubpatchUV(const DenseSubpatch& subpatch,
+                         const chrono::ChVector3d& x_W,
+                         double& u,
+                         double& v) {
+    const chrono::ChVector3d rel = x_W - subpatch.centroid_W;
+    u = chrono::Vdot(rel, subpatch.t1_W);
+    v = chrono::Vdot(rel, subpatch.t2_W);
+}
+
+chrono::ChVector3d LiftSubpatchUV(const DenseSubpatch& subpatch, double u, double v) {
+    return subpatch.centroid_W + u * subpatch.t1_W + v * subpatch.t2_W;
 }
 
 chrono::ChMatrix33<> BuildContactPlane(const chrono::ChVector3d& n_W) {
@@ -233,6 +259,239 @@ double ComputeSupportAxisSpread(const std::vector<DenseContactPoint>& dense_poin
         return 0.0;
     }
     return std::sqrt(weighted_sum / weight_sum);
+}
+
+std::vector<std::size_t> AssignDensePointsToCenters(const std::vector<DenseContactPoint>& dense_points,
+                                                    const DenseSubpatch& subpatch,
+                                                    const std::vector<chrono::ChVector3d>& centers_W) {
+    std::vector<std::size_t> assignments(subpatch.members.size(), 0);
+    for (std::size_t local_index = 0; local_index < subpatch.members.size(); ++local_index) {
+        const auto member_index = subpatch.members[local_index];
+        const auto& dense = dense_points[member_index];
+
+        std::size_t best_cluster = 0;
+        double best_distance = std::numeric_limits<double>::infinity();
+        for (std::size_t cluster = 0; cluster < centers_W.size(); ++cluster) {
+            const double distance = (dense.x_W - centers_W[cluster]).Length2();
+            if (distance < best_distance) {
+                best_distance = distance;
+                best_cluster = cluster;
+            }
+        }
+        assignments[local_index] = best_cluster;
+    }
+    return assignments;
+}
+
+PlanarStats2D ComputeDensePlanarStats(const std::vector<DenseContactPoint>& dense_points,
+                                      const DenseSubpatch& subpatch) {
+    PlanarStats2D stats;
+    for (const auto point_index : subpatch.members) {
+        const auto& point = dense_points[point_index];
+        const double weight = DenseMetricWeight(point);
+        double u = 0.0;
+        double v = 0.0;
+        ProjectToSubpatchUV(subpatch, point.x_W, u, v);
+        stats.mean_u += weight * u;
+        stats.mean_v += weight * v;
+        stats.weight_sum += weight;
+    }
+    if (!(stats.weight_sum > 1.0e-12)) {
+        return stats;
+    }
+
+    stats.mean_u /= stats.weight_sum;
+    stats.mean_v /= stats.weight_sum;
+    for (const auto point_index : subpatch.members) {
+        const auto& point = dense_points[point_index];
+        const double weight = DenseMetricWeight(point);
+        double u = 0.0;
+        double v = 0.0;
+        ProjectToSubpatchUV(subpatch, point.x_W, u, v);
+        const double du = u - stats.mean_u;
+        const double dv = v - stats.mean_v;
+        stats.cov_uu += weight * du * du;
+        stats.cov_uv += weight * du * dv;
+        stats.cov_vv += weight * dv * dv;
+    }
+    stats.cov_uu /= stats.weight_sum;
+    stats.cov_uv /= stats.weight_sum;
+    stats.cov_vv /= stats.weight_sum;
+    return stats;
+}
+
+PlanarStats2D ComputeSupportPlanarStats(const DenseSubpatch& subpatch,
+                                        const std::vector<chrono::ChVector3d>& centers_W,
+                                        const std::vector<std::size_t>& assignments,
+                                        const std::vector<DenseContactPoint>& dense_points) {
+    PlanarStats2D stats;
+    if (centers_W.empty()) {
+        return stats;
+    }
+
+    std::vector<double> cluster_weights(centers_W.size(), 0.0);
+    for (std::size_t local_index = 0; local_index < assignments.size(); ++local_index) {
+        const std::size_t cluster = assignments[local_index];
+        const auto member_index = subpatch.members[local_index];
+        cluster_weights[cluster] += DenseMetricWeight(dense_points[member_index]);
+    }
+
+    for (std::size_t cluster = 0; cluster < centers_W.size(); ++cluster) {
+        const double weight = std::max(cluster_weights[cluster], 1.0e-12);
+        double u = 0.0;
+        double v = 0.0;
+        ProjectToSubpatchUV(subpatch, centers_W[cluster], u, v);
+        stats.mean_u += weight * u;
+        stats.mean_v += weight * v;
+        stats.weight_sum += weight;
+    }
+    if (!(stats.weight_sum > 1.0e-12)) {
+        return stats;
+    }
+
+    stats.mean_u /= stats.weight_sum;
+    stats.mean_v /= stats.weight_sum;
+    for (std::size_t cluster = 0; cluster < centers_W.size(); ++cluster) {
+        const double weight = std::max(cluster_weights[cluster], 1.0e-12);
+        double u = 0.0;
+        double v = 0.0;
+        ProjectToSubpatchUV(subpatch, centers_W[cluster], u, v);
+        const double du = u - stats.mean_u;
+        const double dv = v - stats.mean_v;
+        stats.cov_uu += weight * du * du;
+        stats.cov_uv += weight * du * dv;
+        stats.cov_vv += weight * dv * dv;
+    }
+    stats.cov_uu /= stats.weight_sum;
+    stats.cov_uv /= stats.weight_sum;
+    stats.cov_vv /= stats.weight_sum;
+    return stats;
+}
+
+double ComputePlanarMomentObjective(const PlanarStats2D& dense_stats, const PlanarStats2D& support_stats) {
+    if (!(dense_stats.weight_sum > 1.0e-12) || !(support_stats.weight_sum > 1.0e-12)) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    const double mean_du = support_stats.mean_u - dense_stats.mean_u;
+    const double mean_dv = support_stats.mean_v - dense_stats.mean_v;
+    const double dense_cov_norm = std::sqrt(dense_stats.cov_uu * dense_stats.cov_uu +
+                                            2.0 * dense_stats.cov_uv * dense_stats.cov_uv +
+                                            dense_stats.cov_vv * dense_stats.cov_vv);
+    const double cov_scale = std::max(dense_cov_norm, 1.0e-9);
+    const double cov_duu = (support_stats.cov_uu - dense_stats.cov_uu) / cov_scale;
+    const double cov_duv = (support_stats.cov_uv - dense_stats.cov_uv) / cov_scale;
+    const double cov_dvv = (support_stats.cov_vv - dense_stats.cov_vv) / cov_scale;
+    return 4.0 * (mean_du * mean_du + mean_dv * mean_dv) +
+           (cov_duu * cov_duu + 2.0 * cov_duv * cov_duv + cov_dvv * cov_dvv);
+}
+
+void ComputeSubpatchBoundsUV(const std::vector<DenseContactPoint>& dense_points,
+                             const DenseSubpatch& subpatch,
+                             double& min_u,
+                             double& max_u,
+                             double& min_v,
+                             double& max_v) {
+    min_u = std::numeric_limits<double>::infinity();
+    max_u = -std::numeric_limits<double>::infinity();
+    min_v = std::numeric_limits<double>::infinity();
+    max_v = -std::numeric_limits<double>::infinity();
+    for (const auto point_index : subpatch.members) {
+        double u = 0.0;
+        double v = 0.0;
+        ProjectToSubpatchUV(subpatch, dense_points[point_index].x_W, u, v);
+        min_u = std::min(min_u, u);
+        max_u = std::max(max_u, u);
+        min_v = std::min(min_v, v);
+        max_v = std::max(max_v, v);
+    }
+    if (!std::isfinite(min_u) || !std::isfinite(max_u) || !std::isfinite(min_v) || !std::isfinite(max_v)) {
+        min_u = max_u = min_v = max_v = 0.0;
+    }
+}
+
+void OptimizeSupportCenters(const std::vector<DenseContactPoint>& dense_points,
+                            const DenseSubpatch& subpatch,
+                            const CompressedContactConfig& cfg,
+                            bool has_temporal_history,
+                            std::vector<chrono::ChVector3d>& centers_W) {
+    if (centers_W.empty()) {
+        return;
+    }
+
+    chrono::ChVector3d avg_v_rel_W(0.0, 0.0, 0.0);
+    double v_weight_sum = 0.0;
+    for (const auto point_index : subpatch.members) {
+        const auto& point = dense_points[point_index];
+        const double weight = std::max(ProxyLoad(point), std::max(1.0e-12, point.area_weight));
+        avg_v_rel_W += weight * point.v_rel_W;
+        v_weight_sum += weight;
+    }
+    if (v_weight_sum > 1.0e-12) {
+        avg_v_rel_W *= (1.0 / v_weight_sum);
+    }
+    const double approach_speed = std::max(0.0, -chrono::Vdot(avg_v_rel_W, subpatch.avg_normal_W));
+    const chrono::ChVector3d tangential_v_W =
+        avg_v_rel_W - chrono::Vdot(avg_v_rel_W, subpatch.avg_normal_W) * subpatch.avg_normal_W;
+    const double tangential_speed = tangential_v_W.Length();
+    const double motion_gate =
+        1.0 / (1.0 + 2.5 * approach_speed / std::max(cfg.temporal_approach_velocity_scale, 1.0e-6) +
+               tangential_speed / std::max(cfg.temporal_slip_velocity_scale, 1.0e-6));
+    if (motion_gate < 0.55) {
+        return;
+    }
+
+    auto assignments = AssignDensePointsToCenters(dense_points, subpatch, centers_W);
+    const auto dense_stats = ComputeDensePlanarStats(dense_points, subpatch);
+    if (!(dense_stats.weight_sum > 1.0e-12)) {
+        return;
+    }
+    const auto original_centers_W = centers_W;
+    const auto original_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
+    const double original_objective = ComputePlanarMomentObjective(dense_stats, original_stats);
+
+    double min_u = 0.0;
+    double max_u = 0.0;
+    double min_v = 0.0;
+    double max_v = 0.0;
+    ComputeSubpatchBoundsUV(dense_points, subpatch, min_u, max_u, min_v, max_v);
+
+    const int max_iters = has_temporal_history ? 1 : 2;
+    for (int iter = 0; iter < max_iters; ++iter) {
+        const auto support_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
+        if (!(support_stats.weight_sum > 1.0e-12)) {
+            break;
+        }
+
+        const double dense_std_u = std::sqrt(std::max(dense_stats.cov_uu, 1.0e-12));
+        const double dense_std_v = std::sqrt(std::max(dense_stats.cov_vv, 1.0e-12));
+        const double support_std_u = std::sqrt(std::max(support_stats.cov_uu, 1.0e-12));
+        const double support_std_v = std::sqrt(std::max(support_stats.cov_vv, 1.0e-12));
+        const double scale_u = ClampScale(dense_std_u / support_std_u, 0.65, 1.65);
+        const double scale_v = ClampScale(dense_std_v / support_std_v, 0.65, 1.65);
+        const double base_blend = has_temporal_history ? 0.18 : ((centers_W.size() <= 2) ? 0.55 : 0.38);
+        const double blend = motion_gate * base_blend;
+
+        for (auto& center_W : centers_W) {
+            double u = 0.0;
+            double v = 0.0;
+            ProjectToSubpatchUV(subpatch, center_W, u, v);
+            const double target_u = dense_stats.mean_u + scale_u * (u - support_stats.mean_u);
+            const double target_v = dense_stats.mean_v + scale_v * (v - support_stats.mean_v);
+            const double blended_u = (1.0 - blend) * u + blend * target_u;
+            const double blended_v = (1.0 - blend) * v + blend * target_v;
+            center_W = LiftSubpatchUV(subpatch, std::clamp(blended_u, min_u, max_u),
+                                      std::clamp(blended_v, min_v, max_v));
+        }
+
+        assignments = AssignDensePointsToCenters(dense_points, subpatch, centers_W);
+    }
+
+    const auto optimized_stats = ComputeSupportPlanarStats(subpatch, centers_W, assignments, dense_points);
+    const double optimized_objective = ComputePlanarMomentObjective(dense_stats, optimized_stats);
+    if (!(optimized_objective < original_objective)) {
+        centers_W = original_centers_W;
+    }
 }
 
 SecondMoment2D ComputeDenseSecondMoment(const std::vector<DenseContactPoint>& dense_points,
@@ -1297,6 +1556,7 @@ std::vector<std::size_t> SelectSupportIndices(const std::vector<DenseContactPoin
 
 std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::vector<DenseContactPoint>& dense_points,
                                                                      const DenseSubpatch& subpatch,
+                                                                     const CompressedContactConfig& cfg,
                                                                      const std::vector<ReducedContactPoint>& previous_contacts,
                                                                      double match_radius,
                                                                      int target_points) {
@@ -1313,22 +1573,8 @@ std::vector<ReducedSupportAggregate> BuildReducedSupportsForSubpatch(const std::
         centers_W.push_back(dense_points[dense_index].x_W);
     }
 
-    std::vector<std::size_t> assignments(subpatch.members.size(), 0);
-    for (std::size_t local_index = 0; local_index < subpatch.members.size(); ++local_index) {
-        const auto member_index = subpatch.members[local_index];
-        const auto& dense = dense_points[member_index];
-
-        std::size_t best_cluster = 0;
-        double best_distance = std::numeric_limits<double>::infinity();
-        for (std::size_t cluster = 0; cluster < centers_W.size(); ++cluster) {
-            const double distance = (dense.x_W - centers_W[cluster]).Length2();
-            if (distance < best_distance) {
-                best_distance = distance;
-                best_cluster = cluster;
-            }
-        }
-        assignments[local_index] = best_cluster;
-    }
+    OptimizeSupportCenters(dense_points, subpatch, cfg, !previous_contacts.empty(), centers_W);
+    std::vector<std::size_t> assignments = AssignDensePointsToCenters(dense_points, subpatch, centers_W);
 
     std::vector<ReducedSupportAggregate> supports;
     supports.reserve(centers_W.size());
@@ -1670,7 +1916,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         double subpatch_reference_wrench_error = 0.0;
         double subpatch_reference_cop_error = 0.0;
         while (true) {
-            supports = BuildReducedSupportsForSubpatch(dense_points, subpatch, selection_previous_contacts,
+            supports = BuildReducedSupportsForSubpatch(dense_points, subpatch, cfg_, selection_previous_contacts,
                                                        cfg_.warm_start_match_radius, target_points);
             matched_supports =
                 MatchSupportsToPrevious(supports, previous_local_contacts, cfg_.warm_start_match_radius);
