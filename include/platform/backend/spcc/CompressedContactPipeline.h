@@ -83,6 +83,11 @@ struct TemporalSubpatchState {
     chrono::ChVector3d reference_force_W;
     chrono::ChVector3d reference_moment_W;
     double reference_total_load = 0.0;
+    chrono::ChVector3d impulse_origin_W;
+    chrono::ChVector3d impulse_force_W;
+    chrono::ChVector3d impulse_moment_W;
+    double impulse_total_load = 0.0;
+    bool has_impulse_wrench = false;
     std::vector<ReducedContactPoint> contacts;
 };
 
@@ -107,6 +112,7 @@ class CompressedContactPipeline {
     mutable std::vector<ReducedContactPoint> previous_contacts_;
     mutable std::vector<TemporalSubpatchState> previous_subpatches_;
     mutable std::size_t next_persistent_id_ = 1;
+    mutable double previous_step_size_ = 0.0;
 };
 
 }  // namespace spcc

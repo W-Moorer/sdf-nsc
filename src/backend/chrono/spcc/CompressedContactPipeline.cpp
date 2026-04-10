@@ -165,6 +165,14 @@ chrono::ChVector3d DecodeTotalReactionForce(const ReducedContactPoint& contact) 
     return center_force_W + negative_force_W + positive_force_W;
 }
 
+chrono::ChVector3d DecodeTotalReactionEquivalentForce(const ReducedContactPoint& contact, double step_size) {
+    const chrono::ChVector3d cached_impulse_W = DecodeTotalReactionForce(contact);
+    if (!(step_size > 1.0e-12)) {
+        return cached_impulse_W;
+    }
+    return cached_impulse_W * (1.0 / step_size);
+}
+
 double DenseMetricWeight(const DenseContactPoint& point) {
     const double proxy = ProxyLoad(point);
     return (proxy > 1.0e-12) ? proxy : std::max(1.0e-12, point.area_weight);
@@ -538,6 +546,27 @@ double ComputeReferenceLoadBlend(const ReferenceWrench& current, const TemporalS
     return std::sqrt(load_ratio);
 }
 
+double ComputeImpulseLoadBlend(const ReferenceWrench& current, const TemporalSubpatchState& previous) {
+    if (!previous.has_impulse_wrench) {
+        return 0.0;
+    }
+    const double current_load = std::max(0.0, current.total_load);
+    const double previous_load = std::max(0.0, previous.impulse_total_load);
+    const double load_ratio =
+        std::min(current_load, previous_load) / std::max({current_load, previous_load, 1.0e-9});
+    return std::sqrt(load_ratio);
+}
+
+ReferenceWrench MakeImpulseTransportReference(const ReferenceWrench& current,
+                                              const TemporalSubpatchState& previous) {
+    ReferenceWrench transported = current;
+    transported.force_W = previous.impulse_force_W;
+    transported.moment_W =
+        previous.impulse_moment_W + chrono::Vcross(previous.impulse_origin_W - current.origin_W, previous.impulse_force_W);
+    transported.total_load = previous.impulse_total_load;
+    return transported;
+}
+
 ReferenceWrench BlendTemporalReference(const ReferenceWrench& current,
                                        const TemporalSubpatchState* previous,
                                        double blend) {
@@ -560,6 +589,48 @@ ReferenceWrench BlendTemporalReference(const ReferenceWrench& current,
     blended.moment_W = (1.0 - alpha) * current.moment_W + alpha * previous_moment_W;
     blended.total_load = (1.0 - alpha) * current.total_load + alpha * previous->reference_total_load;
     return blended;
+}
+
+bool BuildTransportedImpulseWarmStart(const std::vector<ReducedSupportAggregate>& supports,
+                                      const DenseSubpatch& subpatch,
+                                      const TemporalSubpatchState* previous,
+                                      const ReferenceWrench& current_reference,
+                                      const CompressedContactConfig& cfg,
+                                      double mu_default,
+                                      double transport_alpha,
+                                      std::vector<double>& out_loads,
+                                      std::vector<chrono::ChVector3d>& out_forces_W) {
+    out_loads.clear();
+    out_forces_W.clear();
+    if (!previous || !previous->has_impulse_wrench || supports.empty() || !(transport_alpha > 0.0)) {
+        return false;
+    }
+
+    std::vector<SupportWrenchPoint> support_points;
+    support_points.reserve(supports.size());
+    for (const auto& support : supports) {
+        SupportWrenchPoint point;
+        point.x_W = support.x_W;
+        point.n_W = support.n_W;
+        BuildSupportBasis(point.n_W, subpatch.t1_W, point.t1_W, point.t2_W);
+        point.mu = mu_default;
+        point.initial_load = 0.0;
+        point.initial_force_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+        support_points.push_back(point);
+    }
+
+    const ReferenceWrench transport_reference = MakeImpulseTransportReference(current_reference, *previous);
+    WrenchAllocationResult transport_result;
+    LocalWrenchAllocator::Allocate(support_points, transport_reference, std::max(1.0e-10, cfg.temporal_load_regularization),
+                                   transport_result);
+    if (!transport_result.feasible || transport_result.loads.size() != supports.size() ||
+        transport_result.forces_W.size() != supports.size()) {
+        return false;
+    }
+
+    out_loads = std::move(transport_result.loads);
+    out_forces_W = std::move(transport_result.forces_W);
+    return true;
 }
 
 double ComputeSupportMatchConfidence(const ReducedSupportAggregate& support,
@@ -634,6 +705,7 @@ std::vector<std::ptrdiff_t> MatchSubpatches(const std::vector<DenseSubpatch>& cu
 
 SupportTransportSeed LookupPreviousTransportSeed(const ReducedSupportAggregate& support,
                                                  const std::vector<ReducedContactPoint>& previous_contacts,
+                                                 double previous_step_size,
                                                  double match_radius,
                                                  std::ptrdiff_t matched_previous = -1) {
     SupportTransportSeed seed;
@@ -663,7 +735,7 @@ SupportTransportSeed LookupPreviousTransportSeed(const ReducedSupportAggregate& 
         return seed;
     }
 
-    const chrono::ChVector3d cached_force_W = DecodeTotalReactionForce(*candidate);
+    const chrono::ChVector3d cached_force_W = DecodeTotalReactionEquivalentForce(*candidate, previous_step_size);
     if (cached_force_W.Length2() > 1.0e-24) {
         seed.force_W = cached_force_W;
         seed.load = std::max(0.0, chrono::Vdot(cached_force_W, support.n_W));
@@ -1131,6 +1203,7 @@ void CompressedContactPipeline::Configure(const CompressedContactConfig& cfg) {
     previous_contacts_.clear();
     previous_subpatches_.clear();
     next_persistent_id_ = 1;
+    previous_step_size_ = 0.0;
 }
 
 void CompressedContactPipeline::SetSlaveSurfaceSamples(std::vector<DenseSurfaceSample> samples) {
@@ -1139,6 +1212,7 @@ void CompressedContactPipeline::SetSlaveSurfaceSamples(std::vector<DenseSurfaceS
     previous_contacts_.clear();
     previous_subpatches_.clear();
     next_persistent_id_ = 1;
+    previous_step_size_ = 0.0;
 }
 
 void CompressedContactPipeline::SyncTemporalWarmStart(const std::vector<ReducedContactPoint>& emitted_contacts) const {
@@ -1150,8 +1224,25 @@ void CompressedContactPipeline::SyncTemporalWarmStart(const std::vector<ReducedC
                 synced_contacts.push_back(emitted);
             }
         }
-        if (!synced_contacts.empty()) {
-            subpatch_state.contacts = std::move(synced_contacts);
+        subpatch_state.contacts = std::move(synced_contacts);
+
+        subpatch_state.has_impulse_wrench = false;
+        subpatch_state.impulse_origin_W = subpatch_state.reference_origin_W;
+        subpatch_state.impulse_force_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+        subpatch_state.impulse_moment_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+        subpatch_state.impulse_total_load = 0.0;
+        for (const auto& contact : subpatch_state.contacts) {
+            const chrono::ChVector3d reaction_force_W =
+                DecodeTotalReactionEquivalentForce(contact, previous_step_size_);
+            if (!(reaction_force_W.Length2() > 1.0e-24)) {
+                continue;
+            }
+            subpatch_state.has_impulse_wrench = true;
+            subpatch_state.impulse_force_W += reaction_force_W;
+            subpatch_state.impulse_moment_W +=
+                chrono::Vcross(contact.x_W - subpatch_state.impulse_origin_W, reaction_force_W);
+            subpatch_state.impulse_total_load +=
+                std::max(0.0, chrono::Vdot(reaction_force_W, subpatch_state.avg_normal_W));
         }
     }
 }
@@ -1272,6 +1363,19 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                       [&support_ids](std::size_t a, std::size_t b) { return support_ids[a] < support_ids[b]; });
 
             if (!supports.empty()) {
+                const double transport_alpha =
+                    (matched_previous_state && matched_previous_state->has_impulse_wrench)
+                        ? (cfg_.temporal_force_transport_blend *
+                           ComputeSubpatchMatchConfidence(cfg_, subpatch, *matched_previous_state) *
+                           ComputeSubpatchMotionBlend(cfg_, dense_points, subpatch) *
+                           ComputeImpulseLoadBlend(reference, *matched_previous_state))
+                        : 0.0;
+                std::vector<double> transported_loads;
+                std::vector<chrono::ChVector3d> transported_forces_W;
+                const bool has_transport = BuildTransportedImpulseWarmStart(
+                    supports, subpatch, matched_previous_state, reference, cfg_, mu_default, transport_alpha,
+                    transported_loads, transported_forces_W);
+
                 std::vector<SupportWrenchPoint> support_points;
                 support_points.reserve(supports.size());
                 for (std::size_t support_index = 0; support_index < supports.size(); ++support_index) {
@@ -1281,23 +1385,35 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                     point.n_W = support.n_W;
                     BuildSupportBasis(point.n_W, subpatch.t1_W, point.t1_W, point.t2_W);
                     point.mu = mu_default;
-                    const auto previous_seed = LookupPreviousTransportSeed(
-                        support, previous_local_contacts, cfg_.warm_start_match_radius, matched_supports[support_index]);
-                    const auto transport_blend = ComputeSupportTransportBlend(cfg_, support, previous_seed);
-                    const chrono::ChVector3d current_normal_force_W =
-                        chrono::Vdot(support.allocated_force_W, support.n_W) * support.n_W;
-                    const chrono::ChVector3d previous_normal_force_W =
-                        chrono::Vdot(previous_seed.force_W, support.n_W) * support.n_W;
-                    const chrono::ChVector3d current_tangential_force_W = support.allocated_force_W - current_normal_force_W;
-                    const chrono::ChVector3d previous_tangential_force_W = previous_seed.force_W - previous_normal_force_W;
+                    if (has_transport && support_index < transported_loads.size() &&
+                        support_index < transported_forces_W.size()) {
+                        point.initial_load = (1.0 - transport_alpha) * std::max(0.0, support.allocated_load) +
+                                             transport_alpha * std::max(0.0, transported_loads[support_index]);
+                        point.initial_force_W =
+                            (1.0 - transport_alpha) * support.allocated_force_W +
+                            transport_alpha * transported_forces_W[support_index];
+                    } else {
+                        const auto previous_seed = LookupPreviousTransportSeed(
+                            support, previous_local_contacts, previous_step_size_, cfg_.warm_start_match_radius,
+                            matched_supports[support_index]);
+                        const auto transport_blend = ComputeSupportTransportBlend(cfg_, support, previous_seed);
+                        const chrono::ChVector3d current_normal_force_W =
+                            chrono::Vdot(support.allocated_force_W, support.n_W) * support.n_W;
+                        const chrono::ChVector3d previous_normal_force_W =
+                            chrono::Vdot(previous_seed.force_W, support.n_W) * support.n_W;
+                        const chrono::ChVector3d current_tangential_force_W =
+                            support.allocated_force_W - current_normal_force_W;
+                        const chrono::ChVector3d previous_tangential_force_W =
+                            previous_seed.force_W - previous_normal_force_W;
 
-                    point.initial_load = (1.0 - transport_blend.scalar) * std::max(0.0, support.allocated_load) +
-                                         transport_blend.scalar * std::max(0.0, previous_seed.load);
-                    point.initial_force_W =
-                        (1.0 - transport_blend.normal) * current_normal_force_W +
-                        transport_blend.normal * previous_normal_force_W +
-                        (1.0 - transport_blend.tangential) * current_tangential_force_W +
-                        transport_blend.tangential * previous_tangential_force_W;
+                        point.initial_load = (1.0 - transport_blend.scalar) * std::max(0.0, support.allocated_load) +
+                                             transport_blend.scalar * std::max(0.0, previous_seed.load);
+                        point.initial_force_W =
+                            (1.0 - transport_blend.normal) * current_normal_force_W +
+                            transport_blend.normal * previous_normal_force_W +
+                            (1.0 - transport_blend.tangential) * current_tangential_force_W +
+                            transport_blend.tangential * previous_tangential_force_W;
+                    }
                     support_points.push_back(point);
                 }
 
@@ -1400,6 +1516,11 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         temporal_state.reference_force_W = reference.force_W;
         temporal_state.reference_moment_W = reference.moment_W;
         temporal_state.reference_total_load = reference.total_load;
+        temporal_state.impulse_origin_W = reference.origin_W;
+        temporal_state.impulse_force_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+        temporal_state.impulse_moment_W = chrono::ChVector3d(0.0, 0.0, 0.0);
+        temporal_state.impulse_total_load = 0.0;
+        temporal_state.has_impulse_wrench = false;
         for (std::size_t contact_index = contacts_begin; contact_index < out_contacts.size(); ++contact_index) {
             temporal_state.contacts.push_back(out_contacts[contact_index]);
         }
@@ -1408,6 +1529,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
 
     previous_contacts_ = out_contacts;
     previous_subpatches_ = std::move(current_subpatches);
+    previous_step_size_ = step_size;
 
     if (!out_stats) {
         return;
