@@ -84,6 +84,10 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
     cfg.max_subpatch_diameter =
         GetScopedEnvDouble(env_prefix, "MAX_SUBPATCH_DIAMETER", cfg.max_subpatch_diameter);
     cfg.max_plane_error = GetScopedEnvDouble(env_prefix, "MAX_PLANE_ERROR", cfg.max_plane_error);
+    cfg.max_second_moment_error =
+        GetScopedEnvDouble(env_prefix, "MAX_SECOND_MOMENT_ERROR", cfg.max_second_moment_error);
+    cfg.max_cone_error = GetScopedEnvDouble(env_prefix, "MAX_CONE_ERROR", cfg.max_cone_error);
+    cfg.cone_direction_count = GetScopedEnvInt(env_prefix, "CONE_DIRECTION_COUNT", cfg.cone_direction_count);
     cfg.sentinel_spacing = GetScopedEnvDouble(env_prefix, "SENTINEL_SPACING", cfg.sentinel_spacing);
     cfg.sentinel_margin = GetScopedEnvDouble(env_prefix, "SENTINEL_MARGIN", cfg.sentinel_margin);
     cfg.max_subpatch_depth = GetScopedEnvInt(env_prefix, "MAX_SUBPATCH_DEPTH", cfg.max_subpatch_depth);

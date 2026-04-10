@@ -57,6 +57,12 @@ struct TransportBlendWeights {
     double tangential = 0.0;
 };
 
+struct SecondMoment2D {
+    double uu = 0.0;
+    double uv = 0.0;
+    double vv = 0.0;
+};
+
 double Clamp01(double value) {
     return std::clamp(value, 0.0, 1.0);
 }
@@ -157,6 +163,187 @@ chrono::ChVector3d DecodeTotalReactionForce(const ReducedContactPoint& contact) 
         return negative_force_W + positive_force_W;
     }
     return center_force_W + negative_force_W + positive_force_W;
+}
+
+double DenseMetricWeight(const DenseContactPoint& point) {
+    const double proxy = ProxyLoad(point);
+    return (proxy > 1.0e-12) ? proxy : std::max(1.0e-12, point.area_weight);
+}
+
+double SupportMetricWeight(const ReducedSupportAggregate& support) {
+    if (support.allocated_load > 1.0e-12) {
+        return support.allocated_load;
+    }
+    if (support.support_weight > 1.0e-12) {
+        return support.support_weight;
+    }
+    return std::max(1.0e-12, support.area_weight);
+}
+
+SecondMoment2D ComputeDenseSecondMoment(const std::vector<DenseContactPoint>& dense_points,
+                                        const DenseSubpatch& subpatch,
+                                        const chrono::ChVector3d& center_W) {
+    SecondMoment2D moment;
+    double weight_sum = 0.0;
+    for (const auto point_index : subpatch.members) {
+        const auto& point = dense_points[point_index];
+        const double weight = DenseMetricWeight(point);
+        const chrono::ChVector3d rel = point.x_W - center_W;
+        const double u = chrono::Vdot(rel, subpatch.t1_W);
+        const double v = chrono::Vdot(rel, subpatch.t2_W);
+        moment.uu += weight * u * u;
+        moment.uv += weight * u * v;
+        moment.vv += weight * v * v;
+        weight_sum += weight;
+    }
+    if (weight_sum > 1.0e-12) {
+        moment.uu /= weight_sum;
+        moment.uv /= weight_sum;
+        moment.vv /= weight_sum;
+    }
+    return moment;
+}
+
+SecondMoment2D ComputeReducedSecondMoment(const std::vector<ReducedSupportAggregate>& supports,
+                                          const DenseSubpatch& subpatch,
+                                          const chrono::ChVector3d& center_W) {
+    SecondMoment2D moment;
+    double weight_sum = 0.0;
+    for (const auto& support : supports) {
+        const double weight = SupportMetricWeight(support);
+        const chrono::ChVector3d rel = support.x_W - center_W;
+        const double u = chrono::Vdot(rel, subpatch.t1_W);
+        const double v = chrono::Vdot(rel, subpatch.t2_W);
+        moment.uu += weight * u * u;
+        moment.uv += weight * u * v;
+        moment.vv += weight * v * v;
+        weight_sum += weight;
+    }
+    if (weight_sum > 1.0e-12) {
+        moment.uu /= weight_sum;
+        moment.uv /= weight_sum;
+        moment.vv /= weight_sum;
+    }
+    return moment;
+}
+
+double ComputeSecondMomentError(const std::vector<DenseContactPoint>& dense_points,
+                                const DenseSubpatch& subpatch,
+                                const std::vector<ReducedSupportAggregate>& supports) {
+    if (subpatch.members.empty() || supports.empty()) {
+        return 0.0;
+    }
+
+    const chrono::ChVector3d center_W = SubpatchReferenceCenter(dense_points, subpatch);
+    const auto dense_moment = ComputeDenseSecondMoment(dense_points, subpatch, center_W);
+    const auto reduced_moment = ComputeReducedSecondMoment(supports, subpatch, center_W);
+    const double dense_norm = std::sqrt(dense_moment.uu * dense_moment.uu + 2.0 * dense_moment.uv * dense_moment.uv +
+                                        dense_moment.vv * dense_moment.vv);
+    const double diff_norm = std::sqrt((reduced_moment.uu - dense_moment.uu) * (reduced_moment.uu - dense_moment.uu) +
+                                       2.0 * (reduced_moment.uv - dense_moment.uv) *
+                                           (reduced_moment.uv - dense_moment.uv) +
+                                       (reduced_moment.vv - dense_moment.vv) *
+                                           (reduced_moment.vv - dense_moment.vv));
+    return diff_norm / std::max(dense_norm, 1.0e-12);
+}
+
+double ComputeConeSupportError(const std::vector<DenseContactPoint>& dense_points,
+                               const DenseSubpatch& subpatch,
+                               const std::vector<ReducedSupportAggregate>& supports,
+                               const CompressedContactConfig& cfg) {
+    if (subpatch.members.empty() || supports.empty()) {
+        return 0.0;
+    }
+
+    const chrono::ChVector3d center_W = SubpatchReferenceCenter(dense_points, subpatch);
+    const int dir_count = std::max(8, cfg.cone_direction_count);
+    double max_error = 0.0;
+    for (int dir_index = 0; dir_index < dir_count; ++dir_index) {
+        const double theta =
+            (2.0 * std::acos(-1.0) * static_cast<double>(dir_index)) / static_cast<double>(dir_count);
+        const chrono::ChVector3d dir_W = std::cos(theta) * subpatch.t1_W + std::sin(theta) * subpatch.t2_W;
+
+        double dense_support = -std::numeric_limits<double>::infinity();
+        for (const auto point_index : subpatch.members) {
+            dense_support = std::max(dense_support, chrono::Vdot(dense_points[point_index].x_W - center_W, dir_W));
+        }
+
+        double reduced_support = -std::numeric_limits<double>::infinity();
+        for (const auto& support : supports) {
+            reduced_support = std::max(reduced_support, chrono::Vdot(support.x_W - center_W, dir_W));
+        }
+
+        max_error = std::max(max_error, std::abs(reduced_support - dense_support));
+    }
+
+    return max_error / std::max(subpatch.diameter, 1.0e-9);
+}
+
+chrono::ChVector3d ComputeReducedForce(const std::vector<ReducedSupportAggregate>& supports) {
+    chrono::ChVector3d force_W(0.0, 0.0, 0.0);
+    for (const auto& support : supports) {
+        force_W += support.allocated_force_W;
+    }
+    return force_W;
+}
+
+chrono::ChVector3d ComputeReducedMoment(const std::vector<ReducedSupportAggregate>& supports,
+                                        const chrono::ChVector3d& origin_W) {
+    chrono::ChVector3d moment_W(0.0, 0.0, 0.0);
+    for (const auto& support : supports) {
+        moment_W += chrono::Vcross(support.x_W - origin_W, support.allocated_force_W);
+    }
+    return moment_W;
+}
+
+chrono::ChVector3d ComputeReferenceCoP(const ReferenceWrench& reference, const DenseSubpatch& subpatch) {
+    const double normal_load = chrono::Vdot(reference.force_W, subpatch.avg_normal_W);
+    if (!(normal_load > 1.0e-12)) {
+        return reference.origin_W;
+    }
+    return reference.origin_W + chrono::Vcross(subpatch.avg_normal_W, reference.moment_W) * (1.0 / normal_load);
+}
+
+chrono::ChVector3d ComputeReducedCoP(const std::vector<ReducedSupportAggregate>& supports,
+                                     const DenseSubpatch& subpatch) {
+    chrono::ChVector3d cop_W(0.0, 0.0, 0.0);
+    double weight_sum = 0.0;
+    for (const auto& support : supports) {
+        const double normal_load = std::max(0.0, chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W));
+        cop_W += normal_load * support.x_W;
+        weight_sum += normal_load;
+    }
+    if (!(weight_sum > 1.0e-12)) {
+        return subpatch.centroid_W;
+    }
+    return cop_W * (1.0 / weight_sum);
+}
+
+double ComputeReferenceWrenchError(const std::vector<ReducedSupportAggregate>& supports,
+                                   const DenseSubpatch& subpatch,
+                                   const ReferenceWrench& reference) {
+    if (supports.empty()) {
+        return 0.0;
+    }
+
+    const chrono::ChVector3d reduced_force_W = ComputeReducedForce(supports);
+    const chrono::ChVector3d reduced_moment_W = ComputeReducedMoment(supports, reference.origin_W);
+    const double force_scale = std::max(reference.force_W.Length(), 1.0e-12);
+    const double radius_scale = std::max(0.5 * subpatch.diameter, 1.0e-6);
+    const double moment_scale =
+        std::max({reference.moment_W.Length(), reference.force_W.Length() * radius_scale, 1.0e-12});
+    const double force_error = (reduced_force_W - reference.force_W).Length() / force_scale;
+    const double moment_error = (reduced_moment_W - reference.moment_W).Length() / moment_scale;
+    return std::sqrt(force_error * force_error + moment_error * moment_error);
+}
+
+double ComputeReferenceCoPError(const std::vector<ReducedSupportAggregate>& supports,
+                                const DenseSubpatch& subpatch,
+                                const ReferenceWrench& reference) {
+    if (supports.empty()) {
+        return 0.0;
+    }
+    return (ComputeReducedCoP(supports, subpatch) - ComputeReferenceCoP(reference, subpatch)).Length();
 }
 
 chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, const DenseSubpatch& subpatch) {
@@ -991,9 +1178,15 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     const auto matched_previous = MatchSubpatches(subpatches, previous_subpatches_, cfg_);
 
     double max_subpatch_plane_error = 0.0;
+    double max_subpatch_second_moment_error = 0.0;
+    double max_subpatch_cone_error = 0.0;
     double max_subpatch_gap_error = 0.0;
     double max_subpatch_force_residual = 0.0;
     double max_subpatch_moment_residual = 0.0;
+    double max_subpatch_reference_wrench_error = 0.0;
+    double max_subpatch_reference_cop_error = 0.0;
+    double max_dense_micro_force_residual = 0.0;
+    double max_dense_micro_moment_residual = 0.0;
 
     out_contacts.reserve(dense_points.size());
     std::vector<TemporalSubpatchState> current_subpatches;
@@ -1038,13 +1231,16 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                       return a.support_id < b.support_id;
                   });
 
-        int target_points = cfg_.max_reduced_points_per_patch;
-        if (cfg_.max_subpatch_diameter > 0.0 && subpatch.diameter <= 0.75 * cfg_.max_subpatch_diameter) {
-            target_points = std::min(target_points, 3);
-        }
-        const ReferenceWrench dense_reference =
-            LocalWrenchAllocator::BuildDenseReference(dense_points, subpatch.members, subpatch.centroid_W,
-                                                     mu_default);
+        int target_points = std::min(cfg_.max_reduced_points_per_patch,
+                                     (subpatch.members.size() <= 1) ? 1 : ((subpatch.members.size() <= 2) ? 2 : 3));
+        DenseMicroReferenceResult dense_micro_reference;
+        LocalWrenchAllocator::BuildDenseMicroReference(dense_points, subpatch.members, subpatch.centroid_W,
+                                                       mu_default, step_size, dense_micro_reference);
+        const ReferenceWrench& dense_reference = dense_micro_reference.reference;
+        max_dense_micro_force_residual =
+            std::max(max_dense_micro_force_residual, dense_micro_reference.force_residual);
+        max_dense_micro_moment_residual =
+            std::max(max_dense_micro_moment_residual, dense_micro_reference.moment_residual);
         double temporal_reference_alpha = 0.0;
         if (matched_previous_state) {
             temporal_reference_alpha = cfg_.temporal_reference_blend *
@@ -1058,8 +1254,12 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         std::vector<std::ptrdiff_t> matched_supports;
         std::vector<std::size_t> support_ids;
         std::vector<std::size_t> support_order;
+        double subpatch_second_moment_error = 0.0;
+        double subpatch_cone_error = 0.0;
         double subpatch_gap_error = 0.0;
         double subpatch_gap_mismatch = 0.0;
+        double subpatch_reference_wrench_error = 0.0;
+        double subpatch_reference_cop_error = 0.0;
         while (true) {
             supports = BuildReducedSupportsForSubpatch(dense_points, subpatch, selection_previous_contacts,
                                                        cfg_.warm_start_match_radius, target_points);
@@ -1125,10 +1325,22 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                 }
             }
 
+            subpatch_second_moment_error = ComputeSecondMomentError(dense_points, subpatch, supports);
+            subpatch_cone_error = ComputeConeSupportError(dense_points, subpatch, supports, cfg_);
             subpatch_gap_error = ComputeSubpatchGapError(subpatch, supports, master_state, sdf, cfg_);
             subpatch_gap_mismatch = ComputeSubpatchGapMismatch(dense_points, subpatch, supports);
+            subpatch_reference_wrench_error = ComputeReferenceWrenchError(supports, subpatch, reference);
+            subpatch_reference_cop_error = ComputeReferenceCoPError(supports, subpatch, reference);
             const double combined_gap_metric = std::max(subpatch_gap_error, subpatch_gap_mismatch);
-            if (!(cfg_.max_gap_error > 0.0) || combined_gap_metric <= cfg_.max_gap_error ||
+            const bool sigma_ok =
+                !(cfg_.max_second_moment_error > 0.0) || subpatch_second_moment_error <= cfg_.max_second_moment_error;
+            const bool cone_ok = !(cfg_.max_cone_error > 0.0) || subpatch_cone_error <= cfg_.max_cone_error;
+            const bool gap_ok = !(cfg_.max_gap_error > 0.0) || combined_gap_metric <= cfg_.max_gap_error;
+            const bool wrench_ok =
+                !(cfg_.max_wrench_error > 0.0) || subpatch_reference_wrench_error <= cfg_.max_wrench_error;
+            const bool cop_ok =
+                !(cfg_.max_cop_error > 0.0) || subpatch_reference_cop_error <= cfg_.max_cop_error;
+            if ((sigma_ok && cone_ok && gap_ok && wrench_ok && cop_ok) ||
                 target_points >= cfg_.max_reduced_points_per_patch) {
                 break;
             }
@@ -1143,7 +1355,14 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             mean_allocated_load /= static_cast<double>(supports.size());
         }
 
+        max_subpatch_second_moment_error =
+            std::max(max_subpatch_second_moment_error, subpatch_second_moment_error);
+        max_subpatch_cone_error = std::max(max_subpatch_cone_error, subpatch_cone_error);
         max_subpatch_gap_error = std::max(max_subpatch_gap_error, std::max(subpatch_gap_error, subpatch_gap_mismatch));
+        max_subpatch_reference_wrench_error =
+            std::max(max_subpatch_reference_wrench_error, subpatch_reference_wrench_error);
+        max_subpatch_reference_cop_error =
+            std::max(max_subpatch_reference_cop_error, subpatch_reference_cop_error);
 
         const std::size_t contacts_begin = out_contacts.size();
         for (const auto support_index : support_order) {
@@ -1205,9 +1424,15 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
     out_stats->bvh_nodes_pruned_sdf = cloud_stats.bvh.nodes_pruned_sdf;
     out_stats->bvh_leaf_samples_tested = cloud_stats.bvh.leaf_samples_tested;
     out_stats->max_subpatch_plane_error = max_subpatch_plane_error;
+    out_stats->max_subpatch_second_moment_error = max_subpatch_second_moment_error;
+    out_stats->max_subpatch_cone_error = max_subpatch_cone_error;
     out_stats->max_subpatch_gap_error = max_subpatch_gap_error;
     out_stats->max_subpatch_force_residual = max_subpatch_force_residual;
     out_stats->max_subpatch_moment_residual = max_subpatch_moment_residual;
+    out_stats->max_subpatch_reference_wrench_error = max_subpatch_reference_wrench_error;
+    out_stats->max_subpatch_reference_cop_error = max_subpatch_reference_cop_error;
+    out_stats->max_dense_micro_force_residual = max_dense_micro_force_residual;
+    out_stats->max_dense_micro_moment_residual = max_dense_micro_moment_residual;
 
     if (dense_points.empty() || out_contacts.empty()) {
         out_stats->epsilon_F = 0.0;

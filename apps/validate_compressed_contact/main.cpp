@@ -144,11 +144,14 @@ CompressedContactConfig MakeValidationConfig() {
     cfg.max_patch_diameter = 0.14;
     cfg.max_subpatch_diameter = 0.0;
     cfg.max_plane_error = 0.0;
+    cfg.max_second_moment_error = 0.26;
+    cfg.max_cone_error = 0.25;
+    cfg.cone_direction_count = 24;
     cfg.sentinel_spacing = 6.0e-3;
     cfg.sentinel_margin = 1.5e-3;
     cfg.max_subpatch_depth = 4;
     cfg.min_dense_points_per_subpatch = 16;
-    cfg.max_reduced_points_per_patch = 4;
+    cfg.max_reduced_points_per_patch = 6;
     cfg.warm_start_match_radius = 2.0e-3;
     cfg.temporal_load_regularization = 1.0e-10;
     cfg.temporal_reference_blend = 0.0;
@@ -268,12 +271,27 @@ std::vector<ScenarioDefinition> BuildScenarios() {
 }
 
 bool IsPass(const ScenarioDefinition& scenario, const CompressionValidationReport& report) {
+    const double dense_force_abs = report.dense_wrench.force_W.Length();
+    const double dense_moment_abs = report.dense_wrench.moment_at_origin_W.Length();
+    const double force_abs_error = (report.reduced_wrench.force_W - report.dense_wrench.force_W).Length();
+    const double moment_abs_error =
+        (report.reduced_wrench.moment_at_origin_W - report.dense_wrench.moment_at_origin_W).Length();
+    const bool force_ok =
+        (dense_force_abs <= 1.0e-4) ? (force_abs_error <= 1.0e-6)
+                                    : (report.stats.epsilon_F <= scenario.cfg.max_wrench_error);
+    const bool moment_ok =
+        (dense_moment_abs <= 1.0e-4) ? (moment_abs_error <= 1.0e-6)
+                                     : (report.stats.epsilon_M <= scenario.cfg.max_wrench_error);
     return !report.dense_contacts.empty() && !report.reduced_contacts.empty() &&
            report.stats.patch_count == scenario.expected_patch_count &&
-           report.stats.epsilon_F <= scenario.cfg.max_wrench_error &&
-           report.stats.epsilon_M <= scenario.cfg.max_wrench_error &&
+           force_ok &&
+           moment_ok &&
            report.stats.epsilon_CoP <= scenario.cfg.max_cop_error &&
-           report.stats.epsilon_gap <= scenario.cfg.max_gap_error;
+           report.stats.epsilon_gap <= scenario.cfg.max_gap_error &&
+           (!(scenario.cfg.max_second_moment_error > 0.0) ||
+            report.stats.max_subpatch_second_moment_error <= scenario.cfg.max_second_moment_error) &&
+           (!(scenario.cfg.max_cone_error > 0.0) ||
+            report.stats.max_subpatch_cone_error <= scenario.cfg.max_cone_error);
 }
 
 void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>& results) {
@@ -290,7 +308,10 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
     out << "scenario,description,total_samples,candidate_count,dense_count,reduced_count,compression_ratio,"
            "patch_count,subpatch_count,expected_patch_count,bvh_nodes_visited,bvh_nodes_pruned_obb,bvh_nodes_pruned_sdf,"
            "bvh_leaf_samples_tested,epsilon_F,epsilon_M,epsilon_CoP,epsilon_gap,max_subpatch_plane_error,"
-           "max_subpatch_gap_error,dense_worst_gap,reduced_worst_gap,max_subpatch_force_residual,max_subpatch_moment_residual,"
+           "max_subpatch_second_moment_error,max_subpatch_cone_error,max_subpatch_gap_error,"
+           "dense_worst_gap,reduced_worst_gap,max_subpatch_force_residual,max_subpatch_moment_residual,"
+           "max_subpatch_reference_wrench_error,max_subpatch_reference_cop_error,"
+           "max_dense_micro_force_residual,max_dense_micro_moment_residual,"
            "dense_force_norm,reduced_force_norm,dense_moment_norm,reduced_moment_norm,pass\n";
     for (const auto& result : results) {
         const double dense_count = static_cast<double>(result.report.stats.dense_count);
@@ -315,11 +336,17 @@ void WriteSummaryCsv(const std::string& path, const std::vector<ScenarioResult>&
             << result.report.stats.epsilon_CoP << ','
             << result.report.stats.epsilon_gap << ','
             << result.report.stats.max_subpatch_plane_error << ','
+            << result.report.stats.max_subpatch_second_moment_error << ','
+            << result.report.stats.max_subpatch_cone_error << ','
             << result.report.stats.max_subpatch_gap_error << ','
             << result.report.stats.dense_worst_gap << ','
             << result.report.stats.reduced_worst_gap << ','
             << result.report.stats.max_subpatch_force_residual << ','
             << result.report.stats.max_subpatch_moment_residual << ','
+            << result.report.stats.max_subpatch_reference_wrench_error << ','
+            << result.report.stats.max_subpatch_reference_cop_error << ','
+            << result.report.stats.max_dense_micro_force_residual << ','
+            << result.report.stats.max_dense_micro_moment_residual << ','
             << result.report.dense_wrench.force_W.Length() << ','
             << result.report.reduced_wrench.force_W.Length() << ','
             << result.report.dense_wrench.moment_at_origin_W.Length() << ','
@@ -351,11 +378,17 @@ void PrintScenarioResult(const ScenarioResult& result) {
               << " epsCoP=" << result.report.stats.epsilon_CoP
               << " epsGap=" << result.report.stats.epsilon_gap
               << " plane=" << result.report.stats.max_subpatch_plane_error
+              << " sigma=" << result.report.stats.max_subpatch_second_moment_error
+              << " cone=" << result.report.stats.max_subpatch_cone_error
               << " sentGap=" << result.report.stats.max_subpatch_gap_error
               << " denseGap=" << result.report.stats.dense_worst_gap
               << " redGap=" << result.report.stats.reduced_worst_gap
               << " subF=" << result.report.stats.max_subpatch_force_residual
-              << " subM=" << result.report.stats.max_subpatch_moment_residual << '\n';
+              << " subM=" << result.report.stats.max_subpatch_moment_residual
+              << " refW=" << result.report.stats.max_subpatch_reference_wrench_error
+              << " refCoP=" << result.report.stats.max_subpatch_reference_cop_error
+              << " microF=" << result.report.stats.max_dense_micro_force_residual
+              << " microM=" << result.report.stats.max_dense_micro_moment_residual << '\n';
     std::cout << "  dense wrench    : |F|=" << result.report.dense_wrench.force_W.Length()
               << " |M0|=" << result.report.dense_wrench.moment_at_origin_W.Length()
               << " CoP=(" << result.report.dense_wrench.cop_W.x() << ", "

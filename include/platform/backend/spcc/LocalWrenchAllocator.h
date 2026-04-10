@@ -28,6 +28,13 @@ struct ReferenceWrench {
     double total_load = 0.0;
 };
 
+struct DenseMicroReferenceResult {
+    ReferenceWrench reference;
+    double force_residual = 0.0;
+    double moment_residual = 0.0;
+    bool feasible = false;
+};
+
 struct WrenchAllocationResult {
     std::vector<double> loads;
     std::vector<chrono::ChVector3d> forces_W;
@@ -41,10 +48,12 @@ struct WrenchAllocationResult {
 
 class LocalWrenchAllocator {
   public:
-    static ReferenceWrench BuildDenseReference(const std::vector<DenseContactPoint>& dense_points,
-                                              const std::vector<std::size_t>& member_indices,
-                                              const chrono::ChVector3d& origin_W,
-                                              double mu_default);
+    static void BuildDenseMicroReference(const std::vector<DenseContactPoint>& dense_points,
+                                         const std::vector<std::size_t>& member_indices,
+                                         const chrono::ChVector3d& origin_W,
+                                         double mu_default,
+                                         double step_size,
+                                         DenseMicroReferenceResult& out_result);
 
     static void Allocate(const std::vector<SupportWrenchPoint>& supports,
                          const ReferenceWrench& reference,

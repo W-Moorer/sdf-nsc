@@ -63,9 +63,15 @@ struct CompressionStats {
     double dense_worst_gap = 0.0;
     double reduced_worst_gap = 0.0;
     double max_subpatch_plane_error = 0.0;
+    double max_subpatch_second_moment_error = 0.0;
+    double max_subpatch_cone_error = 0.0;
     double max_subpatch_gap_error = 0.0;
     double max_subpatch_force_residual = 0.0;
     double max_subpatch_moment_residual = 0.0;
+    double max_subpatch_reference_wrench_error = 0.0;
+    double max_subpatch_reference_cop_error = 0.0;
+    double max_dense_micro_force_residual = 0.0;
+    double max_dense_micro_moment_residual = 0.0;
 };
 
 struct TemporalSubpatchState {

@@ -13,6 +13,7 @@ namespace {
 
 constexpr int kFrictionPyramidEdges = 4;
 constexpr double kSlipVelocityScale = 1.0e-3;
+constexpr double kNormalApproachVelocityScale = 1.0;
 
 struct RayColumn {
     std::size_t support_index = 0;
@@ -36,6 +37,13 @@ bool RefineActiveRayWeights(const std::vector<RayColumn>& rays,
 
 double ProxyLoad(const DenseContactPoint& point) {
     return std::max(0.0, -point.phi_eff) * std::max(0.0, point.area_weight);
+}
+
+double DenseMicroLoad(const DenseContactPoint& point, double step_size) {
+    const double normal_approach_speed = std::max(0.0, -chrono::Vdot(point.v_rel_W, point.n_W));
+    const double activation = std::max(0.0, -point.phi_eff) +
+                              kNormalApproachVelocityScale * step_size * normal_approach_speed;
+    return activation * std::max(0.0, point.area_weight);
 }
 
 double DotVector(const std::vector<double>& a, const std::vector<double>& b) {
@@ -443,28 +451,27 @@ chrono::ChVector3d BuildTangentialProxyForce(const DenseContactPoint& point, dou
 
 }  // namespace
 
-ReferenceWrench LocalWrenchAllocator::BuildDenseReference(const std::vector<DenseContactPoint>& dense_points,
-                                                          const std::vector<std::size_t>& member_indices,
-                                                          const chrono::ChVector3d& origin_W,
-                                                          double mu_default) {
-    ReferenceWrench raw_reference;
-    raw_reference.origin_W = origin_W;
-    raw_reference.force_W = chrono::ChVector3d(0.0, 0.0, 0.0);
-    raw_reference.moment_W = chrono::ChVector3d(0.0, 0.0, 0.0);
-    raw_reference.total_load = 0.0;
+void LocalWrenchAllocator::BuildDenseMicroReference(const std::vector<DenseContactPoint>& dense_points,
+                                                    const std::vector<std::size_t>& member_indices,
+                                                    const chrono::ChVector3d& origin_W,
+                                                    double mu_default,
+                                                    double step_size,
+                                                    DenseMicroReferenceResult& out_result) {
+    out_result = DenseMicroReferenceResult{};
+    out_result.reference.origin_W = origin_W;
 
     std::vector<SupportWrenchPoint> dense_supports;
     dense_supports.reserve(member_indices.size());
 
     for (const auto member_index : member_indices) {
         const auto& point = dense_points[member_index];
-        const double load = ProxyLoad(point);
+        const double load = DenseMicroLoad(point, step_size);
         const chrono::ChVector3d normal_force_W = load * point.n_W;
         const chrono::ChVector3d tangential_force_W = BuildTangentialProxyForce(point, load, mu_default);
         const chrono::ChVector3d contact_force_W = normal_force_W + tangential_force_W;
-        raw_reference.force_W += contact_force_W;
-        raw_reference.moment_W += chrono::Vcross(point.x_W - origin_W, contact_force_W);
-        raw_reference.total_load += load;
+        out_result.reference.force_W += contact_force_W;
+        out_result.reference.moment_W += chrono::Vcross(point.x_W - origin_W, contact_force_W);
+        out_result.reference.total_load += load;
 
         SupportWrenchPoint support;
         support.x_W = point.x_W;
@@ -481,13 +488,16 @@ ReferenceWrench LocalWrenchAllocator::BuildDenseReference(const std::vector<Dens
     }
 
     if (dense_supports.empty()) {
-        return raw_reference;
+        return;
     }
 
     WrenchAllocationResult projected_result;
-    LocalWrenchAllocator::Allocate(dense_supports, raw_reference, 1.0e-12, projected_result);
+    LocalWrenchAllocator::Allocate(dense_supports, out_result.reference, 1.0e-12, projected_result);
+    out_result.force_residual = projected_result.force_residual;
+    out_result.moment_residual = projected_result.moment_residual;
+    out_result.feasible = projected_result.feasible;
     if (!projected_result.feasible || projected_result.forces_W.size() != dense_supports.size()) {
-        return raw_reference;
+        return;
     }
 
     ReferenceWrench reference;
@@ -500,8 +510,7 @@ ReferenceWrench LocalWrenchAllocator::BuildDenseReference(const std::vector<Dens
         reference.moment_W += chrono::Vcross(dense_supports[i].x_W - origin_W, projected_result.forces_W[i]);
         reference.total_load += projected_result.loads[i];
     }
-
-    return reference;
+    out_result.reference = reference;
 }
 
 void LocalWrenchAllocator::Allocate(const std::vector<SupportWrenchPoint>& supports,
