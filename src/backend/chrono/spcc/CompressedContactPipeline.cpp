@@ -92,6 +92,26 @@ double ClampScale(double value, double min_value, double max_value) {
     return std::clamp(value, min_value, max_value);
 }
 
+DenseMicroSolverOptions MakeDenseMicroSolverOptions(const CompressedContactConfig& cfg) {
+    DenseMicroSolverOptions options;
+    options.friction_ray_count = cfg.dense_micro_friction_rays;
+    options.normal_response_weight = cfg.dense_micro_normal_response_weight;
+    options.tangential_response_weight = cfg.dense_micro_tangential_response_weight;
+    options.gap_drive_weight = cfg.dense_micro_gap_drive_weight;
+    options.approach_drive_weight = cfg.dense_micro_approach_drive_weight;
+    options.slip_drive_weight = cfg.dense_micro_slip_drive_weight;
+    options.wrench_coupling_weight = cfg.dense_micro_wrench_coupling_weight;
+    options.regularization = cfg.dense_micro_regularization;
+    return options;
+}
+
+ReducedSolveOptions MakeReducedSolveOptions(const CompressedContactConfig& cfg, double temporal_regularization) {
+    ReducedSolveOptions options;
+    options.friction_ray_count = cfg.reduced_friction_rays;
+    options.temporal_regularization = temporal_regularization;
+    return options;
+}
+
 double ProxyLoad(const DenseContactPoint& point) {
     return std::max(0.0, -point.phi_eff) * std::max(0.0, point.area_weight);
 }
@@ -1247,9 +1267,206 @@ std::array<double, 5> ComputeTangentialStencilWeights(const std::vector<DenseCon
     return weights;
 }
 
+constexpr double kReinjectionSlipVelocityScale = 1.0e-3;
+
+int ActiveStencilSlotCount(int emission_count) {
+    if (emission_count >= 5) {
+        return 5;
+    }
+    if (emission_count >= 3) {
+        return 3;
+    }
+    return (emission_count == 2) ? 2 : 1;
+}
+
+std::vector<int> ActiveStencilSlots(int emission_count) {
+    if (emission_count >= 5) {
+        return {0, 1, 2, 3, 4};
+    }
+    if (emission_count >= 3) {
+        return {0, 1, 2};
+    }
+    if (emission_count == 2) {
+        return {1, 2};
+    }
+    return {0};
+}
+
+std::array<chrono::ChVector3d, 5> BuildStencilSlotOffsets(const ReducedContactPoint& reduced,
+                                                          const chrono::ChVector3d& primary_axis_W,
+                                                          const chrono::ChVector3d& secondary_axis_W) {
+    std::array<chrono::ChVector3d, 5> offsets{
+        chrono::ChVector3d(0.0, 0.0, 0.0), chrono::ChVector3d(0.0, 0.0, 0.0),
+        chrono::ChVector3d(0.0, 0.0, 0.0), chrono::ChVector3d(0.0, 0.0, 0.0),
+        chrono::ChVector3d(0.0, 0.0, 0.0),
+    };
+    offsets[1] = -reduced.stencil_half_extent * primary_axis_W;
+    offsets[2] = reduced.stencil_half_extent * primary_axis_W;
+    offsets[3] = -reduced.stencil_half_extent_secondary * secondary_axis_W;
+    offsets[4] = reduced.stencil_half_extent_secondary * secondary_axis_W;
+    return offsets;
+}
+
+chrono::ChVector3d BuildDenseSeedProxyForce(const DenseContactPoint& point,
+                                            const chrono::ChVector3d& fallback_tangent_W,
+                                            double mu_default) {
+    const double normal_load = ProxyLoad(point);
+    chrono::ChVector3d force_W = normal_load * point.n_W;
+    if (!(mu_default > 0.0) || !(normal_load > 0.0)) {
+        return force_W;
+    }
+
+    chrono::ChVector3d tangential_dir_W = ProjectToTangentUnit(point.v_rel_W, point.n_W);
+    if (tangential_dir_W.Length2() <= 0.0) {
+        tangential_dir_W = ProjectToTangentUnit(fallback_tangent_W, point.n_W);
+    }
+    if (tangential_dir_W.Length2() <= 0.0) {
+        return force_W;
+    }
+
+    const chrono::ChVector3d tangential_velocity_W =
+        point.v_rel_W - chrono::Vdot(point.v_rel_W, point.n_W) * point.n_W;
+    const double tangential_speed = tangential_velocity_W.Length();
+    const double slip_ratio = tangential_speed / std::max(tangential_speed + kReinjectionSlipVelocityScale, 1.0e-9);
+    force_W -= (mu_default * slip_ratio * normal_load) * tangential_dir_W;
+    return force_W;
+}
+
+double DotStencilColumn(const std::vector<double>& a, const std::vector<double>& b) {
+    double sum = 0.0;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        sum += a[i] * b[i];
+    }
+    return sum;
+}
+
+double EvaluateStencilScalarObjective(const std::vector<std::vector<double>>& columns,
+                                      const std::vector<double>& target,
+                                      const std::vector<double>& initial,
+                                      double regularization,
+                                      const std::vector<double>& weights) {
+    std::vector<double> residual(target.size(), 0.0);
+    for (std::size_t row = 0; row < target.size(); ++row) {
+        residual[row] = -target[row];
+    }
+    for (std::size_t column_index = 0; column_index < columns.size(); ++column_index) {
+        const double weight = weights[column_index];
+        if (!(std::abs(weight) > 0.0)) {
+            continue;
+        }
+        for (std::size_t row = 0; row < target.size(); ++row) {
+            residual[row] += columns[column_index][row] * weight;
+        }
+    }
+
+    double objective = 0.5 * DotStencilColumn(residual, residual);
+    if (regularization > 0.0) {
+        for (std::size_t i = 0; i < weights.size(); ++i) {
+            const double delta = weights[i] - initial[i];
+            objective += 0.5 * regularization * delta * delta;
+        }
+    }
+    return objective;
+}
+
+double EstimateStencilScalarLipschitz(const std::vector<std::vector<double>>& columns, double regularization) {
+    double trace_bound = regularization;
+    for (const auto& column : columns) {
+        trace_bound += DotStencilColumn(column, column);
+    }
+    return std::max(trace_bound, 1.0e-6);
+}
+
+void ComputeStencilScalarGradient(const std::vector<std::vector<double>>& columns,
+                                  const std::vector<double>& target,
+                                  const std::vector<double>& initial,
+                                  double regularization,
+                                  const std::vector<double>& weights,
+                                  std::vector<double>& gradient) {
+    std::vector<double> residual(target.size(), 0.0);
+    for (std::size_t row = 0; row < target.size(); ++row) {
+        residual[row] = -target[row];
+    }
+    for (std::size_t column_index = 0; column_index < columns.size(); ++column_index) {
+        const double weight = weights[column_index];
+        if (!(std::abs(weight) > 0.0)) {
+            continue;
+        }
+        for (std::size_t row = 0; row < target.size(); ++row) {
+            residual[row] += columns[column_index][row] * weight;
+        }
+    }
+
+    gradient.assign(columns.size(), 0.0);
+    for (std::size_t column_index = 0; column_index < columns.size(); ++column_index) {
+        double value = DotStencilColumn(columns[column_index], residual);
+        if (regularization > 0.0) {
+            value += regularization * (weights[column_index] - initial[column_index]);
+        }
+        gradient[column_index] = value;
+    }
+}
+
+bool SolveNonnegativeStencilScalars(const std::vector<std::vector<double>>& columns,
+                                    const std::vector<double>& target,
+                                    const std::vector<double>& initial,
+                                    double regularization,
+                                    std::vector<double>& out_weights) {
+    out_weights = initial;
+    if (columns.empty()) {
+        return true;
+    }
+
+    std::vector<double> x(columns.size(), 0.0);
+    for (std::size_t i = 0; i < columns.size(); ++i) {
+        x[i] = std::max(0.0, initial[i]);
+    }
+    std::vector<double> y = x;
+    std::vector<double> x_next(columns.size(), 0.0);
+    std::vector<double> gradient;
+    const double step = 1.0 / EstimateStencilScalarLipschitz(columns, regularization);
+    double t = 1.0;
+
+    constexpr int kMaxIterations = 512;
+    constexpr double kTolerance = 1.0e-11;
+    for (int iter = 0; iter < kMaxIterations; ++iter) {
+        ComputeStencilScalarGradient(columns, target, initial, regularization, y, gradient);
+
+        double delta_sq = 0.0;
+        for (std::size_t i = 0; i < columns.size(); ++i) {
+            x_next[i] = std::max(0.0, y[i] - step * gradient[i]);
+            const double delta = x_next[i] - x[i];
+            delta_sq += delta * delta;
+        }
+        if (delta_sq <= kTolerance * kTolerance) {
+            x = x_next;
+            break;
+        }
+
+        const double t_next = 0.5 * (1.0 + std::sqrt(1.0 + 4.0 * t * t));
+        const double momentum = (t - 1.0) / t_next;
+        for (std::size_t i = 0; i < columns.size(); ++i) {
+            y[i] = x_next[i] + momentum * (x_next[i] - x[i]);
+        }
+        x.swap(x_next);
+        t = t_next;
+    }
+
+    const double initial_objective =
+        EvaluateStencilScalarObjective(columns, target, initial, regularization, initial);
+    const double solved_objective = EvaluateStencilScalarObjective(columns, target, initial, regularization, x);
+    if (solved_objective <= initial_objective + 1.0e-12) {
+        out_weights = std::move(x);
+    } else {
+        out_weights = initial;
+    }
+    return true;
+}
+
 void SeedReactionCaches(const std::vector<DenseContactPoint>& dense_points,
                         const DenseSubpatch& subpatch,
                         const ReducedSupportAggregate& support,
+                        const CompressedContactConfig& cfg,
                         double step_size,
                         ReducedContactPoint& reduced) {
     reduced.reaction_cache_primary.fill(0.0f);
@@ -1258,54 +1475,174 @@ void SeedReactionCaches(const std::vector<DenseContactPoint>& dense_points,
     reduced.reaction_cache_quaternary.fill(0.0f);
     reduced.reaction_cache_quinary.fill(0.0f);
 
-    const chrono::ChVector3d primary_axis_W = ProjectToTangentUnit(reduced.stencil_axis_W, reduced.n_W);
+    chrono::ChVector3d primary_axis_W = ProjectToTangentUnit(reduced.stencil_axis_W, reduced.n_W);
     chrono::ChVector3d secondary_axis_W =
         ProjectToTangentUnit(reduced.stencil_axis_secondary_W, reduced.n_W);
     if (secondary_axis_W.Length2() <= 0.0) {
         secondary_axis_W = ProjectToTangentUnit(chrono::Vcross(reduced.n_W, primary_axis_W), reduced.n_W);
+    }
+    if (primary_axis_W.Length2() <= 0.0) {
+        primary_axis_W = subpatch.t1_W;
+    }
+    if (secondary_axis_W.Length2() <= 0.0) {
+        secondary_axis_W = subpatch.t2_W;
     }
 
     const auto normal_weights = ComputeNormalStencilWeights(dense_points, support, subpatch, primary_axis_W,
                                                             secondary_axis_W, reduced.emission_count);
     const auto tangential_weights = ComputeTangentialStencilWeights(dense_points, support, subpatch, primary_axis_W,
                                                                     secondary_axis_W, reduced.emission_count);
+    const auto slot_ids = ActiveStencilSlots(reduced.emission_count);
+    const auto slot_offsets_W = BuildStencilSlotOffsets(reduced, primary_axis_W, secondary_axis_W);
     reduced.stencil_gap_offsets.fill(0.0);
-    const int active_slots =
-        (reduced.emission_count >= 5) ? 5 : ((reduced.emission_count >= 3) ? 3 : ((reduced.emission_count == 2) ? 2 : 1));
-    if (active_slots > 1) {
-        const double uniform_weight = 1.0 / static_cast<double>(active_slots);
-        const double gap_bias_scale = std::min(0.45 * std::abs(reduced.phi_eff), 3.0e-4);
-        for (int slot = 0; slot < active_slots; ++slot) {
-            reduced.stencil_gap_offsets[slot] = gap_bias_scale * (uniform_weight - normal_weights[slot]);
+    const int active_slots = ActiveStencilSlotCount(reduced.emission_count);
+
+    const chrono::ChVector3d normal_force_W = chrono::Vdot(reduced.allocated_force_W, reduced.n_W) * reduced.n_W;
+    const double normal_force_mag = std::max(0.0, chrono::Vdot(reduced.allocated_force_W, reduced.n_W));
+    const chrono::ChVector3d tangential_force_W = reduced.allocated_force_W - normal_force_W;
+    chrono::ChVector3d tangential_dir_W = ProjectToTangentUnit(tangential_force_W, reduced.n_W);
+    if (tangential_dir_W.Length2() <= 0.0) {
+        tangential_dir_W = primary_axis_W;
+    }
+    const double tangential_force_mag =
+        (tangential_dir_W.Length2() > 0.0) ? chrono::Vdot(tangential_force_W, tangential_dir_W) : 0.0;
+
+    chrono::ChVector3d proxy_normal_moment_W(0.0, 0.0, 0.0);
+    double proxy_normal_sum = 0.0;
+    double proxy_torsion = 0.0;
+    double proxy_tangential_sum = 0.0;
+    for (const auto dense_index : support.member_indices) {
+        const auto& point = dense_points[dense_index];
+        const chrono::ChVector3d proxy_force_W =
+            BuildDenseSeedProxyForce(point, tangential_dir_W, std::max(0.0, reduced.mu));
+        const chrono::ChVector3d rel_W = point.x_W - reduced.x_W;
+
+        const double proxy_normal_load = std::max(0.0, chrono::Vdot(proxy_force_W, reduced.n_W));
+        proxy_normal_sum += proxy_normal_load;
+        proxy_normal_moment_W += proxy_normal_load * chrono::Vcross(rel_W, reduced.n_W);
+
+        if (tangential_dir_W.Length2() > 0.0) {
+            const double proxy_tangential_load = std::max(0.0, chrono::Vdot(proxy_force_W, tangential_dir_W));
+            proxy_tangential_sum += proxy_tangential_load;
+            proxy_torsion += proxy_tangential_load * chrono::Vdot(reduced.n_W, chrono::Vcross(rel_W, tangential_dir_W));
         }
     }
 
-    const chrono::ChVector3d normal_force_W = chrono::Vdot(reduced.allocated_force_W, reduced.n_W) * reduced.n_W;
-    const chrono::ChVector3d tangential_force_W = reduced.allocated_force_W - normal_force_W;
+    std::vector<double> normal_initial(slot_ids.size(), 0.0);
+    std::vector<double> tangential_initial(slot_ids.size(), 0.0);
+    for (std::size_t local_index = 0; local_index < slot_ids.size(); ++local_index) {
+        normal_initial[local_index] = normal_force_mag * normal_weights[slot_ids[local_index]];
+        tangential_initial[local_index] =
+            std::max(0.0, tangential_force_mag) * tangential_weights[slot_ids[local_index]];
+    }
+
+    std::vector<double> normal_solution = normal_initial;
+    if (normal_force_mag > 1.0e-12) {
+        std::vector<std::vector<double>> columns(slot_ids.size(), std::vector<double>{1.0});
+        std::vector<double> target{normal_force_mag};
+        const chrono::ChVector3d target_normal_moment_W =
+            (proxy_normal_sum > 1.0e-12) ? ((normal_force_mag / proxy_normal_sum) * proxy_normal_moment_W)
+                                         : chrono::ChVector3d(0.0, 0.0, 0.0);
+        if (active_slots > 1 && cfg.reinjection_normal_moment_weight > 0.0) {
+            const double moment_weight = cfg.reinjection_normal_moment_weight;
+            target.push_back(moment_weight * chrono::Vdot(target_normal_moment_W, primary_axis_W));
+            for (std::size_t local_index = 0; local_index < slot_ids.size(); ++local_index) {
+                const auto& offset_W = slot_offsets_W[slot_ids[local_index]];
+                columns[local_index].push_back(
+                    moment_weight * chrono::Vdot(chrono::Vcross(offset_W, reduced.n_W), primary_axis_W));
+            }
+            if (reduced.emission_count >= 5) {
+                target.push_back(moment_weight * chrono::Vdot(target_normal_moment_W, secondary_axis_W));
+                for (std::size_t local_index = 0; local_index < slot_ids.size(); ++local_index) {
+                    const auto& offset_W = slot_offsets_W[slot_ids[local_index]];
+                    columns[local_index].push_back(
+                        moment_weight * chrono::Vdot(chrono::Vcross(offset_W, reduced.n_W), secondary_axis_W));
+                }
+            }
+        }
+        SolveNonnegativeStencilScalars(columns, target, normal_initial, std::max(0.0, cfg.reinjection_seed_regularization),
+                                       normal_solution);
+        const double solved_sum = std::accumulate(normal_solution.begin(), normal_solution.end(), 0.0);
+        if (solved_sum > 1.0e-12) {
+            const double rescale = normal_force_mag / solved_sum;
+            for (auto& value : normal_solution) {
+                value *= rescale;
+            }
+        }
+    }
+
+    std::vector<double> tangential_solution = tangential_initial;
+    if (tangential_dir_W.Length2() > 0.0 && tangential_force_mag > 1.0e-12) {
+        std::vector<std::vector<double>> columns(slot_ids.size(), std::vector<double>{1.0});
+        std::vector<double> target{tangential_force_mag};
+        if (active_slots > 1 && cfg.reinjection_tangential_moment_weight > 0.0) {
+            const double moment_weight = cfg.reinjection_tangential_moment_weight;
+            const double target_torsion =
+                (proxy_tangential_sum > 1.0e-12) ? ((tangential_force_mag / proxy_tangential_sum) * proxy_torsion) : 0.0;
+            target.push_back(moment_weight * target_torsion);
+            for (std::size_t local_index = 0; local_index < slot_ids.size(); ++local_index) {
+                const auto& offset_W = slot_offsets_W[slot_ids[local_index]];
+                columns[local_index].push_back(
+                    moment_weight * chrono::Vdot(reduced.n_W, chrono::Vcross(offset_W, tangential_dir_W)));
+            }
+        }
+        SolveNonnegativeStencilScalars(columns, target, tangential_initial,
+                                       std::max(0.0, cfg.reinjection_seed_regularization), tangential_solution);
+        const double solved_sum = std::accumulate(tangential_solution.begin(), tangential_solution.end(), 0.0);
+        if (solved_sum > 1.0e-12) {
+            const double rescale = tangential_force_mag / solved_sum;
+            for (auto& value : tangential_solution) {
+                value *= rescale;
+            }
+        }
+    }
+
+    if (active_slots > 1) {
+        const double uniform_weight = 1.0 / static_cast<double>(active_slots);
+        const double gap_bias_scale = std::min(0.45 * std::abs(reduced.phi_eff), 3.0e-4);
+        const double normal_sum = std::max(std::accumulate(normal_solution.begin(), normal_solution.end(), 0.0), 1.0e-12);
+        for (std::size_t local_index = 0; local_index < slot_ids.size(); ++local_index) {
+            const int slot = slot_ids[local_index];
+            const double weight = normal_solution[local_index] / normal_sum;
+            reduced.stencil_gap_offsets[slot] = gap_bias_scale * (uniform_weight - weight);
+        }
+    }
+
     const double seed_step = std::max(step_size, 0.0);
 
-    auto seed_slot = [&](std::array<float, 6>& reaction_cache, int slot_index) {
-        const chrono::ChVector3d seeded_force_W =
-            normal_weights[slot_index] * normal_force_W + tangential_weights[slot_index] * tangential_force_W;
+    auto seed_slot = [&](std::array<float, 6>& reaction_cache, int slot_index, const chrono::ChVector3d& seeded_force_W) {
         EncodeReactionCacheWorldImpulse(reaction_cache, seed_step * seeded_force_W, reduced.n_W);
     };
 
+    std::array<chrono::ChVector3d, 5> slot_forces_W{
+        chrono::ChVector3d(0.0, 0.0, 0.0), chrono::ChVector3d(0.0, 0.0, 0.0),
+        chrono::ChVector3d(0.0, 0.0, 0.0), chrono::ChVector3d(0.0, 0.0, 0.0),
+        chrono::ChVector3d(0.0, 0.0, 0.0),
+    };
+    for (std::size_t local_index = 0; local_index < slot_ids.size(); ++local_index) {
+        const int slot = slot_ids[local_index];
+        slot_forces_W[slot] = normal_solution[local_index] * reduced.n_W;
+        if (tangential_dir_W.Length2() > 0.0) {
+            slot_forces_W[slot] += tangential_solution[local_index] * tangential_dir_W;
+        }
+    }
+
     if (reduced.emission_count <= 1) {
-        seed_slot(reduced.reaction_cache_primary, 0);
+        seed_slot(reduced.reaction_cache_primary, 0, slot_forces_W[0]);
         return;
     }
     if (reduced.emission_count == 2) {
-        seed_slot(reduced.reaction_cache_secondary, 1);
-        seed_slot(reduced.reaction_cache_tertiary, 2);
+        seed_slot(reduced.reaction_cache_secondary, 1, slot_forces_W[1]);
+        seed_slot(reduced.reaction_cache_tertiary, 2, slot_forces_W[2]);
         return;
     }
 
-    seed_slot(reduced.reaction_cache_primary, 0);
-    seed_slot(reduced.reaction_cache_secondary, 1);
-    seed_slot(reduced.reaction_cache_tertiary, 2);
+    seed_slot(reduced.reaction_cache_primary, 0, slot_forces_W[0]);
+    seed_slot(reduced.reaction_cache_secondary, 1, slot_forces_W[1]);
+    seed_slot(reduced.reaction_cache_tertiary, 2, slot_forces_W[2]);
     if (reduced.emission_count >= 5) {
-        seed_slot(reduced.reaction_cache_quaternary, 3);
-        seed_slot(reduced.reaction_cache_quinary, 4);
+        seed_slot(reduced.reaction_cache_quaternary, 3, slot_forces_W[3]);
+        seed_slot(reduced.reaction_cache_quinary, 4, slot_forces_W[4]);
     }
 }
 
@@ -1488,8 +1825,9 @@ bool BuildTransportedImpulseWarmStart(const std::vector<ReducedSupportAggregate>
 
     const ReferenceWrench transport_reference = MakeImpulseTransportReference(current_reference, *previous);
     WrenchAllocationResult transport_result;
-    LocalWrenchAllocator::Allocate(support_points, transport_reference, std::max(1.0e-10, cfg.temporal_load_regularization),
-                                   transport_result);
+    LocalWrenchAllocator::Allocate(
+        support_points, transport_reference,
+        MakeReducedSolveOptions(cfg, std::max(1.0e-10, cfg.temporal_load_regularization)), transport_result);
     if (!transport_result.feasible || transport_result.loads.size() != supports.size() ||
         transport_result.forces_W.size() != supports.size()) {
         return false;
@@ -2182,8 +2520,10 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
         int target_points = std::min(cfg_.max_reduced_points_per_patch,
                                      (subpatch.members.size() <= 1) ? 1 : ((subpatch.members.size() <= 2) ? 2 : 3));
         DenseMicroReferenceResult dense_micro_reference;
+        const auto dense_micro_options = MakeDenseMicroSolverOptions(cfg_);
         LocalWrenchAllocator::BuildDenseMicroReference(dense_points, subpatch.members, subpatch.centroid_W,
-                                                       mu_default, step_size, dense_micro_reference);
+                                                       mu_default, step_size, dense_micro_options,
+                                                       dense_micro_reference);
         const ReferenceWrench& dense_reference = dense_micro_reference.reference;
         max_dense_micro_force_residual =
             std::max(max_dense_micro_force_residual, dense_micro_reference.force_residual);
@@ -2275,8 +2615,9 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
                 }
 
                 WrenchAllocationResult allocation;
-                LocalWrenchAllocator::Allocate(support_points, reference, cfg_.temporal_load_regularization,
-                                               allocation);
+                LocalWrenchAllocator::Allocate(
+                    support_points, reference,
+                    MakeReducedSolveOptions(cfg_, cfg_.temporal_load_regularization), allocation);
                 max_subpatch_force_residual = std::max(max_subpatch_force_residual, allocation.force_residual);
                 max_subpatch_moment_residual = std::max(max_subpatch_moment_residual, allocation.moment_residual);
 
@@ -2365,7 +2706,7 @@ void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& mast
             reduced.stencil_half_extent_secondary =
                 ChooseSecondaryStencilHalfExtent(support, subpatch, reduced.emission_count);
             reduced.mu = mu_default;
-            SeedReactionCaches(dense_points, subpatch, support, step_size, reduced);
+            SeedReactionCaches(dense_points, subpatch, support, cfg_, step_size, reduced);
             out_contacts.push_back(reduced);
         }
 

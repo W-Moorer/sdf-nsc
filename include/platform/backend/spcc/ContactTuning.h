@@ -30,6 +30,18 @@ struct CompressedContactConfig {
     double max_second_moment_error = 0.0;
     double max_cone_error = 0.0;
     int cone_direction_count = 16;
+    int dense_micro_friction_rays = 12;
+    int reduced_friction_rays = 12;
+    double dense_micro_normal_response_weight = 1.0;
+    double dense_micro_tangential_response_weight = 0.35;
+    double dense_micro_gap_drive_weight = 1.0;
+    double dense_micro_approach_drive_weight = 1.0;
+    double dense_micro_slip_drive_weight = 1.0;
+    double dense_micro_wrench_coupling_weight = 0.1;
+    double dense_micro_regularization = 1.0e-8;
+    double reinjection_normal_moment_weight = 0.5;
+    double reinjection_tangential_moment_weight = 1.0;
+    double reinjection_seed_regularization = 1.0e-8;
     double sentinel_spacing = 0.0;
     double sentinel_margin = 0.0;
     int max_subpatch_depth = 0;
@@ -80,6 +92,8 @@ inline CompressedContactConfig MakeCamCompressedDefaults() {
     cfg.max_second_moment_error = 8.0e-2;
     cfg.max_cone_error = 8.0e-2;
     cfg.cone_direction_count = 24;
+    cfg.dense_micro_friction_rays = 16;
+    cfg.reduced_friction_rays = 12;
     cfg.sentinel_spacing = 1.5e-3;
     cfg.sentinel_margin = 7.5e-4;
     cfg.max_subpatch_depth = 3;
@@ -88,6 +102,7 @@ inline CompressedContactConfig MakeCamCompressedDefaults() {
     cfg.warm_start_match_radius = 4.0e-3;
     cfg.temporal_load_regularization = 1.0e-8;
     cfg.temporal_reference_blend = 0.05;
+    cfg.dense_micro_wrench_coupling_weight = 0.15;
     cfg.max_wrench_error = 0.05;
     cfg.max_cop_error = 1.0e-3;
     cfg.max_gap_error = 1.0e-3;
@@ -148,6 +163,8 @@ inline CompressedContactConfig MakeHeadOnSphereCompressedDefaults() {
     cfg.max_second_moment_error = 2.0e-2;
     cfg.max_cone_error = 2.0e-2;
     cfg.cone_direction_count = 12;
+    cfg.dense_micro_friction_rays = 8;
+    cfg.reduced_friction_rays = 8;
     cfg.sentinel_spacing = 7.5e-4;
     cfg.sentinel_margin = 2.5e-4;
     cfg.max_subpatch_depth = 2;
@@ -195,6 +212,8 @@ inline CompressedContactConfig MakeGearCompressedDefaults() {
     cfg.max_second_moment_error = 5.0e-2;
     cfg.max_cone_error = 5.0e-2;
     cfg.cone_direction_count = 24;
+    cfg.dense_micro_friction_rays = 16;
+    cfg.reduced_friction_rays = 12;
     cfg.sentinel_spacing = 1.5e-4;
     cfg.sentinel_margin = 5.0e-5;
     cfg.max_subpatch_depth = 4;

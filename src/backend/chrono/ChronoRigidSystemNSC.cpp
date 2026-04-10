@@ -88,6 +88,30 @@ spcc::CompressedContactConfig ResolveCompressedContactConfig(const std::string& 
         GetScopedEnvDouble(env_prefix, "MAX_SECOND_MOMENT_ERROR", cfg.max_second_moment_error);
     cfg.max_cone_error = GetScopedEnvDouble(env_prefix, "MAX_CONE_ERROR", cfg.max_cone_error);
     cfg.cone_direction_count = GetScopedEnvInt(env_prefix, "CONE_DIRECTION_COUNT", cfg.cone_direction_count);
+    cfg.dense_micro_friction_rays =
+        GetScopedEnvInt(env_prefix, "DENSE_MICRO_FRICTION_RAYS", cfg.dense_micro_friction_rays);
+    cfg.reduced_friction_rays =
+        GetScopedEnvInt(env_prefix, "REDUCED_FRICTION_RAYS", cfg.reduced_friction_rays);
+    cfg.dense_micro_normal_response_weight =
+        GetScopedEnvDouble(env_prefix, "DENSE_MICRO_NORMAL_RESPONSE_WEIGHT", cfg.dense_micro_normal_response_weight);
+    cfg.dense_micro_tangential_response_weight = GetScopedEnvDouble(
+        env_prefix, "DENSE_MICRO_TANGENTIAL_RESPONSE_WEIGHT", cfg.dense_micro_tangential_response_weight);
+    cfg.dense_micro_gap_drive_weight =
+        GetScopedEnvDouble(env_prefix, "DENSE_MICRO_GAP_DRIVE_WEIGHT", cfg.dense_micro_gap_drive_weight);
+    cfg.dense_micro_approach_drive_weight = GetScopedEnvDouble(
+        env_prefix, "DENSE_MICRO_APPROACH_DRIVE_WEIGHT", cfg.dense_micro_approach_drive_weight);
+    cfg.dense_micro_slip_drive_weight =
+        GetScopedEnvDouble(env_prefix, "DENSE_MICRO_SLIP_DRIVE_WEIGHT", cfg.dense_micro_slip_drive_weight);
+    cfg.dense_micro_wrench_coupling_weight = GetScopedEnvDouble(
+        env_prefix, "DENSE_MICRO_WRENCH_COUPLING_WEIGHT", cfg.dense_micro_wrench_coupling_weight);
+    cfg.dense_micro_regularization =
+        GetScopedEnvDouble(env_prefix, "DENSE_MICRO_REGULARIZATION", cfg.dense_micro_regularization);
+    cfg.reinjection_normal_moment_weight = GetScopedEnvDouble(
+        env_prefix, "REINJECTION_NORMAL_MOMENT_WEIGHT", cfg.reinjection_normal_moment_weight);
+    cfg.reinjection_tangential_moment_weight = GetScopedEnvDouble(
+        env_prefix, "REINJECTION_TANGENTIAL_MOMENT_WEIGHT", cfg.reinjection_tangential_moment_weight);
+    cfg.reinjection_seed_regularization =
+        GetScopedEnvDouble(env_prefix, "REINJECTION_SEED_REGULARIZATION", cfg.reinjection_seed_regularization);
     cfg.sentinel_spacing = GetScopedEnvDouble(env_prefix, "SENTINEL_SPACING", cfg.sentinel_spacing);
     cfg.sentinel_margin = GetScopedEnvDouble(env_prefix, "SENTINEL_MARGIN", cfg.sentinel_margin);
     cfg.max_subpatch_depth = GetScopedEnvInt(env_prefix, "MAX_SUBPATCH_DEPTH", cfg.max_subpatch_depth);

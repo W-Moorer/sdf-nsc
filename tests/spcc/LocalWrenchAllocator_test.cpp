@@ -7,7 +7,9 @@ namespace {
 using platform::backend::spcc::LocalWrenchAllocator;
 using platform::backend::spcc::DenseContactPoint;
 using platform::backend::spcc::DenseMicroReferenceResult;
+using platform::backend::spcc::DenseMicroSolverOptions;
 using platform::backend::spcc::ReferenceWrench;
+using platform::backend::spcc::ReducedSolveOptions;
 using platform::backend::spcc::SupportWrenchPoint;
 using platform::backend::spcc::WrenchAllocationResult;
 
@@ -33,7 +35,9 @@ TEST(LocalWrenchAllocatorTest, MatchesForceAndMomentWithNonnegativeLoads) {
     reference.total_load = 4.0;
 
     WrenchAllocationResult result;
-    LocalWrenchAllocator::Allocate(supports, reference, 1.0e-10, result);
+    ReducedSolveOptions options;
+    options.temporal_regularization = 1.0e-10;
+    LocalWrenchAllocator::Allocate(supports, reference, options, result);
 
     ASSERT_TRUE(result.feasible);
     ASSERT_EQ(result.loads.size(), 2u);
@@ -59,7 +63,10 @@ TEST(LocalWrenchAllocatorTest, MatchesTangentialReferenceInsideFrictionPyramid) 
     reference.total_load = 2.0;
 
     WrenchAllocationResult result;
-    LocalWrenchAllocator::Allocate(supports, reference, 1.0e-10, result);
+    ReducedSolveOptions options;
+    options.temporal_regularization = 1.0e-10;
+    options.friction_ray_count = 16;
+    LocalWrenchAllocator::Allocate(supports, reference, options, result);
 
     ASSERT_TRUE(result.feasible);
     ASSERT_EQ(result.loads.size(), 1u);
@@ -81,8 +88,10 @@ TEST(LocalWrenchAllocatorTest, DenseMicroReferenceOpposesApproachAndSlip) {
     dense_points[0].area_weight = 2.0e-3;
 
     DenseMicroReferenceResult result;
-    LocalWrenchAllocator::BuildDenseMicroReference(dense_points, {0}, chrono::ChVector3d(0.0, 0.0, 0.0), 0.5, 1.0e-3,
-                                                   result);
+    DenseMicroSolverOptions options;
+    options.friction_ray_count = 16;
+    LocalWrenchAllocator::BuildDenseMicroReference(dense_points, {0}, chrono::ChVector3d(0.0, 0.0, 0.0), 0.5,
+                                                   1.0e-3, options, result);
 
     EXPECT_TRUE(result.feasible);
     EXPECT_GT(result.reference.force_W.y(), 0.0);

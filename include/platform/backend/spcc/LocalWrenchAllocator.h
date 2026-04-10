@@ -35,6 +35,22 @@ struct DenseMicroReferenceResult {
     bool feasible = false;
 };
 
+struct DenseMicroSolverOptions {
+    int friction_ray_count = 12;
+    double normal_response_weight = 1.0;
+    double tangential_response_weight = 0.35;
+    double gap_drive_weight = 1.0;
+    double approach_drive_weight = 1.0;
+    double slip_drive_weight = 1.0;
+    double wrench_coupling_weight = 0.1;
+    double regularization = 1.0e-8;
+};
+
+struct ReducedSolveOptions {
+    int friction_ray_count = 12;
+    double temporal_regularization = 1.0e-10;
+};
+
 struct WrenchAllocationResult {
     std::vector<double> loads;
     std::vector<chrono::ChVector3d> forces_W;
@@ -53,11 +69,12 @@ class LocalWrenchAllocator {
                                          const chrono::ChVector3d& origin_W,
                                          double mu_default,
                                          double step_size,
+                                         const DenseMicroSolverOptions& options,
                                          DenseMicroReferenceResult& out_result);
 
     static void Allocate(const std::vector<SupportWrenchPoint>& supports,
                          const ReferenceWrench& reference,
-                         double temporal_regularization,
+                         const ReducedSolveOptions& options,
                          WrenchAllocationResult& out_result);
 };
 
