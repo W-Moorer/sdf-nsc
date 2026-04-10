@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <vector>
 
@@ -38,6 +39,8 @@ struct ReducedContactPoint {
     chrono::ChVector3d allocated_force_W;
     double stencil_half_extent = 0.0;
     double mu = 0.0;
+    std::array<float, 6> reaction_cache_primary{};
+    std::array<float, 6> reaction_cache_secondary{};
 };
 
 struct CompressionStats {
@@ -79,6 +82,7 @@ class CompressedContactPipeline {
   public:
     void Configure(const CompressedContactConfig& cfg);
     void SetSlaveSurfaceSamples(std::vector<DenseSurfaceSample> samples);
+    void SyncTemporalWarmStart(const std::vector<ReducedContactPoint>& emitted_contacts) const;
 
     void BuildReducedContacts(const RigidBodyStateW& master_state,
                               const RigidBodyStateW& slave_state,

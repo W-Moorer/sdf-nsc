@@ -115,14 +115,27 @@ chrono::ChVector3d NormalizeOrZero(const chrono::ChVector3d& v) {
     return v * (1.0 / len);
 }
 
+void TransferReducedReactionCaches(const std::vector<spcc::ReducedContactPoint>& previous_contacts,
+                                   std::vector<spcc::ReducedContactPoint>& current_contacts) {
+    for (auto& current : current_contacts) {
+        for (const auto& previous : previous_contacts) {
+            if (current.persistent_id == previous.persistent_id && current.support_id == previous.support_id) {
+                current.reaction_cache_primary = previous.reaction_cache_primary;
+                current.reaction_cache_secondary = previous.reaction_cache_secondary;
+                break;
+            }
+        }
+    }
+}
+
 void EmitReducedContactStencil(chrono::ChSystem* sys,
                                const std::shared_ptr<chrono::ChBody>& master,
                                const std::shared_ptr<chrono::ChBody>& slave,
                                const std::shared_ptr<chrono::ChContactMaterial>& material,
-                               const spcc::ReducedContactPoint& contact,
+                               spcc::ReducedContactPoint& contact,
                                bool flip_contact_normal,
                                int& emitted_contacts) {
-    auto emit_one = [&](const chrono::ChVector3d& vpA_W, const chrono::ChVector3d& vpB_W) {
+    auto emit_one = [&](const chrono::ChVector3d& vpA_W, const chrono::ChVector3d& vpB_W, float* reaction_cache) {
         chrono::ChCollisionInfo cinfo;
         cinfo.modelA = master->GetCollisionModel().get();
         cinfo.modelB = slave->GetCollisionModel().get();
@@ -132,24 +145,25 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
         cinfo.vpB = vpB_W;
         cinfo.vpA = vpA_W;
         cinfo.distance = contact.phi_eff;
+        cinfo.reaction_cache = reaction_cache;
         sys->GetContactContainer()->AddContact(cinfo, material, material);
         ++emitted_contacts;
     };
 
     if (contact.emission_count <= 1 || !(contact.stencil_half_extent > 1.0e-8)) {
-        emit_one(contact.x_master_surface_W, contact.x_W);
+        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d axis_W = NormalizeOrZero(contact.stencil_axis_W);
     if (axis_W.Length2() <= 0.0) {
-        emit_one(contact.x_master_surface_W, contact.x_W);
+        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d offset_W = contact.stencil_half_extent * axis_W;
-    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W);
-    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W);
+    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_primary.data());
+    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_secondary.data());
 }
 
 spcc::RigidBodyStateW MakeRigidBodyStateW(const std::shared_ptr<chrono::ChBody>& body,
@@ -288,6 +302,7 @@ public:
     spcc::CompressedContactPipeline* m_pipeline;
     std::shared_ptr<chrono::ChContactMaterial> m_material;
     std::vector<spcc::ReducedContactPoint>* m_reduced_contacts_out;
+    std::vector<spcc::ReducedContactPoint> m_emitted_contacts;
     bool m_flip_contact_normal;
     bool m_use_analytic_sphere_toi_contact;
     double m_master_sphere_radius;
@@ -424,17 +439,20 @@ public:
         spcc::CompressionStats stats;
         const double friction = static_cast<double>(
             std::static_pointer_cast<chrono::ChContactMaterialNSC>(m_material)->GetSlidingFriction());
+        m_pipeline->SyncTemporalWarmStart(m_emitted_contacts);
         m_pipeline->BuildReducedContacts(master_state, slave_state, *m_sdf, friction, sys->GetStep(),
                                          reduced_contacts, &stats);
+        TransferReducedReactionCaches(m_emitted_contacts, reduced_contacts);
+        m_emitted_contacts = std::move(reduced_contacts);
 
         int penetration_count = 0;
-        for (auto& contact : reduced_contacts) {
+        for (auto& contact : m_emitted_contacts) {
             EmitReducedContactStencil(sys, m_master, m_slave, m_material, contact, m_flip_contact_normal,
                                       penetration_count);
         }
 
         if (m_reduced_contacts_out) {
-            *m_reduced_contacts_out = reduced_contacts;
+            *m_reduced_contacts_out = m_emitted_contacts;
         }
         
         static int step_id = 0;

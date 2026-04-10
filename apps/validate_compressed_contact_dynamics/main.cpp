@@ -149,13 +149,26 @@ chrono::ChVector3d Normalized(const chrono::ChVector3d& v) {
     return v * (1.0 / len);
 }
 
+void TransferReducedReactionCaches(const std::vector<ReducedContactPoint>& previous_contacts,
+                                   std::vector<ReducedContactPoint>& current_contacts) {
+    for (auto& current : current_contacts) {
+        for (const auto& previous : previous_contacts) {
+            if (current.persistent_id == previous.persistent_id && current.support_id == previous.support_id) {
+                current.reaction_cache_primary = previous.reaction_cache_primary;
+                current.reaction_cache_secondary = previous.reaction_cache_secondary;
+                break;
+            }
+        }
+    }
+}
+
 void EmitReducedContactStencil(chrono::ChSystem* sys,
                                const std::shared_ptr<chrono::ChBody>& master,
                                const std::shared_ptr<chrono::ChBody>& slave,
                                const std::shared_ptr<chrono::ChContactMaterial>& material,
-                               const ReducedContactPoint& contact,
+                               ReducedContactPoint& contact,
                                std::size_t& emitted_contacts) {
-    auto emit_one = [&](const chrono::ChVector3d& vpA_W, const chrono::ChVector3d& vpB_W) {
+    auto emit_one = [&](const chrono::ChVector3d& vpA_W, const chrono::ChVector3d& vpB_W, float* reaction_cache) {
         chrono::ChCollisionInfo cinfo;
         cinfo.modelA = master->GetCollisionModel().get();
         cinfo.modelB = slave->GetCollisionModel().get();
@@ -165,24 +178,25 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
         cinfo.vpA = vpA_W;
         cinfo.vpB = vpB_W;
         cinfo.distance = contact.phi_eff;
+        cinfo.reaction_cache = reaction_cache;
         sys->GetContactContainer()->AddContact(cinfo, material, material);
         ++emitted_contacts;
     };
 
     if (contact.emission_count <= 1 || !(contact.stencil_half_extent > 1.0e-8)) {
-        emit_one(contact.x_master_surface_W, contact.x_W);
+        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d axis_W = Normalized(contact.stencil_axis_W);
     if (axis_W.Length2() <= 0.0) {
-        emit_one(contact.x_master_surface_W, contact.x_W);
+        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d offset_W = contact.stencil_half_extent * axis_W;
-    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W);
-    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W);
+    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_primary.data());
+    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_secondary.data());
 }
 
 void BuildBasis(const chrono::ChVector3d& n_W,
@@ -484,10 +498,12 @@ class ValidationCollisionCallback : public chrono::ChSystem::CustomCollisionCall
     std::size_t last_contact_count = 0;
     CompressionStats last_stats;
     std::vector<ReducedContactPoint> last_reduced_contacts;
+    std::vector<ReducedContactPoint> previous_reduced_contacts;
 
     void OnCustomCollision(chrono::ChSystem* sys) override {
         last_contact_count = 0;
         last_stats = CompressionStats{};
+        previous_reduced_contacts = last_reduced_contacts;
         last_reduced_contacts.clear();
         if (!master_ || !slave_ || !sdf_ || !samples_) {
             return;
@@ -522,12 +538,14 @@ class ValidationCollisionCallback : public chrono::ChSystem::CustomCollisionCall
         }
 
         std::vector<ReducedContactPoint> reduced_contacts;
+        pipeline_.SyncTemporalWarmStart(previous_reduced_contacts);
         pipeline_.BuildReducedContacts(master_state, slave_state, *sdf_, mu, sys->GetStep(), reduced_contacts,
                                        &last_stats);
-        for (const auto& contact : reduced_contacts) {
+        TransferReducedReactionCaches(previous_reduced_contacts, reduced_contacts);
+        last_reduced_contacts = std::move(reduced_contacts);
+        for (auto& contact : last_reduced_contacts) {
             EmitReducedContactStencil(sys, master_, slave_, material_, contact, last_contact_count);
         }
-        last_reduced_contacts = reduced_contacts;
     }
 
   private:

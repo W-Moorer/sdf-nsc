@@ -129,6 +129,24 @@ chrono::ChVector3d ProjectToTangentUnit(const chrono::ChVector3d& v_W, const chr
     return tangent_W * (1.0 / tangent_len);
 }
 
+chrono::ChMatrix33<> BuildContactPlane(const chrono::ChVector3d& n_W) {
+    chrono::ChMatrix33<> contact_plane;
+    contact_plane.SetFromAxisX(n_W, chrono::VECT_Y);
+    return contact_plane;
+}
+
+chrono::ChVector3d DecodeReactionCacheWorldForce(const std::array<float, 6>& reaction_cache,
+                                                 const chrono::ChVector3d& n_W) {
+    const chrono::ChMatrix33<> contact_plane = BuildContactPlane(n_W);
+    const chrono::ChVector3d local_force(reaction_cache[0], reaction_cache[1], reaction_cache[2]);
+    return contact_plane * local_force;
+}
+
+chrono::ChVector3d DecodeTotalReactionForce(const ReducedContactPoint& contact) {
+    return DecodeReactionCacheWorldForce(contact.reaction_cache_primary, contact.n_W) +
+           DecodeReactionCacheWorldForce(contact.reaction_cache_secondary, contact.n_W);
+}
+
 chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, const DenseSubpatch& subpatch) {
     const chrono::ChVector3d tangential_allocated_force_W =
         support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
@@ -422,8 +440,14 @@ SupportTransportSeed LookupPreviousTransportSeed(const ReducedSupportAggregate& 
         return seed;
     }
 
-    seed.load = std::max(0.0, candidate->allocated_load);
-    seed.force_W = candidate->allocated_force_W;
+    const chrono::ChVector3d cached_force_W = DecodeTotalReactionForce(*candidate);
+    if (cached_force_W.Length2() > 1.0e-24) {
+        seed.force_W = cached_force_W;
+        seed.load = std::max(0.0, chrono::Vdot(cached_force_W, support.n_W));
+    } else {
+        seed.load = std::max(0.0, candidate->allocated_load);
+        seed.force_W = candidate->allocated_force_W;
+    }
     seed.confidence = confidence;
     return seed;
 }
@@ -892,6 +916,21 @@ void CompressedContactPipeline::SetSlaveSurfaceSamples(std::vector<DenseSurfaceS
     previous_contacts_.clear();
     previous_subpatches_.clear();
     next_persistent_id_ = 1;
+}
+
+void CompressedContactPipeline::SyncTemporalWarmStart(const std::vector<ReducedContactPoint>& emitted_contacts) const {
+    previous_contacts_ = emitted_contacts;
+    for (auto& subpatch_state : previous_subpatches_) {
+        std::vector<ReducedContactPoint> synced_contacts;
+        for (const auto& emitted : emitted_contacts) {
+            if (emitted.persistent_id == subpatch_state.persistent_id) {
+                synced_contacts.push_back(emitted);
+            }
+        }
+        if (!synced_contacts.empty()) {
+            subpatch_state.contacts = std::move(synced_contacts);
+        }
+    }
 }
 
 void CompressedContactPipeline::BuildReducedContacts(const RigidBodyStateW& master_state,
