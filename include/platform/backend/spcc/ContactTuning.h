@@ -47,11 +47,15 @@ struct CompressedContactConfig {
     double reinjection_normal_moment_weight = 0.5;
     double reinjection_tangential_moment_weight = 1.0;
     double reinjection_seed_regularization = 1.0e-8;
+    double tangential_heterogeneity_threshold = 0.18;
+    double tangential_emission_threshold = 0.12;
+    double temporal_stencil_blend = 0.2;
     double sentinel_spacing = 0.0;
     double sentinel_margin = 0.0;
     int max_subpatch_depth = 0;
     int min_dense_points_per_subpatch = 0;
     int max_reduced_points_per_patch = 4;
+    int max_dynamic_reduced_points_per_patch = 6;
     double warm_start_match_radius = 0.0;
     double temporal_load_regularization = 1.0e-10;
     double temporal_reference_blend = 0.0;
@@ -104,9 +108,11 @@ inline CompressedContactConfig MakeCamCompressedDefaults() {
     cfg.max_subpatch_depth = 3;
     cfg.min_dense_points_per_subpatch = 12;
     cfg.max_reduced_points_per_patch = 6;
+    cfg.max_dynamic_reduced_points_per_patch = 8;
     cfg.warm_start_match_radius = 4.0e-3;
     cfg.temporal_load_regularization = 1.0e-8;
     cfg.temporal_reference_blend = 0.05;
+    cfg.temporal_stencil_blend = 0.22;
     cfg.dense_micro_wrench_coupling_weight = 0.15;
     cfg.max_wrench_error = 0.05;
     cfg.max_cop_error = 1.0e-3;
@@ -175,6 +181,7 @@ inline CompressedContactConfig MakeHeadOnSphereCompressedDefaults() {
     cfg.max_subpatch_depth = 2;
     cfg.min_dense_points_per_subpatch = 8;
     cfg.max_reduced_points_per_patch = 1;
+    cfg.max_dynamic_reduced_points_per_patch = 1;
     cfg.warm_start_match_radius = 1.0e-3;
     cfg.temporal_load_regularization = 1.0e-10;
     cfg.temporal_reference_blend = 0.0;
@@ -224,9 +231,11 @@ inline CompressedContactConfig MakeGearCompressedDefaults() {
     cfg.max_subpatch_depth = 4;
     cfg.min_dense_points_per_subpatch = 10;
     cfg.max_reduced_points_per_patch = 6;
+    cfg.max_dynamic_reduced_points_per_patch = 8;
     cfg.warm_start_match_radius = 2.0e-4;
     cfg.temporal_load_regularization = 1.0e-8;
     cfg.temporal_reference_blend = 0.05;
+    cfg.temporal_stencil_blend = 0.22;
     cfg.max_wrench_error = 0.04;
     cfg.max_cop_error = 2.0e-4;
     cfg.max_gap_error = 2.0e-4;

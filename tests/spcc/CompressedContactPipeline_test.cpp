@@ -340,6 +340,7 @@ TEST(CompressedContactPipelineTest, UsesExpandedStencilForHighShearWideSupport) 
     cfg.max_subpatch_depth = 0;
     cfg.min_dense_points_per_subpatch = 0;
     cfg.max_reduced_points_per_patch = 1;
+    cfg.max_dynamic_reduced_points_per_patch = 1;
     pipeline.Configure(cfg);
 
     std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
@@ -436,6 +437,7 @@ TEST(CompressedContactPipelineTest, UsesFivePointStencilForExtremeShearWideSuppo
     cfg.max_subpatch_depth = 0;
     cfg.min_dense_points_per_subpatch = 0;
     cfg.max_reduced_points_per_patch = 1;
+    cfg.max_dynamic_reduced_points_per_patch = 1;
     pipeline.Configure(cfg);
 
     std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
@@ -483,6 +485,7 @@ TEST(CompressedContactPipelineTest, SeedsStencilCachesToAllocatedForce) {
     cfg.max_subpatch_depth = 0;
     cfg.min_dense_points_per_subpatch = 0;
     cfg.max_reduced_points_per_patch = 1;
+    cfg.max_dynamic_reduced_points_per_patch = 1;
     pipeline.Configure(cfg);
 
     std::vector<platform::backend::spcc::DenseSurfaceSample> samples;
@@ -512,15 +515,15 @@ TEST(CompressedContactPipelineTest, SeedsStencilCachesToAllocatedForce) {
     ASSERT_EQ(contact.emission_count, 5);
 
     chrono::ChVector3d seeded_force_W(0.0, 0.0, 0.0);
-    seeded_force_W += DecodeCacheForce(contact.reaction_cache_primary, contact.n_W, kStepSize);
-    seeded_force_W += DecodeCacheForce(contact.reaction_cache_secondary, contact.n_W, kStepSize);
-    seeded_force_W += DecodeCacheForce(contact.reaction_cache_tertiary, contact.n_W, kStepSize);
-    seeded_force_W += DecodeCacheForce(contact.reaction_cache_quaternary, contact.n_W, kStepSize);
-    seeded_force_W += DecodeCacheForce(contact.reaction_cache_quinary, contact.n_W, kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_primary, contact.slot_n_W[0], kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_secondary, contact.slot_n_W[1], kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_tertiary, contact.slot_n_W[2], kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_quaternary, contact.slot_n_W[3], kStepSize);
+    seeded_force_W += DecodeCacheForce(contact.reaction_cache_quinary, contact.slot_n_W[4], kStepSize);
 
     EXPECT_NEAR((seeded_force_W - contact.allocated_force_W).Length(), 0.0, 1.0e-6);
-    EXPECT_GT(DecodeCacheForce(contact.reaction_cache_secondary, contact.n_W, kStepSize).Length(), 0.0);
-    EXPECT_GT(DecodeCacheForce(contact.reaction_cache_quaternary, contact.n_W, kStepSize).Length(), 0.0);
+    EXPECT_GT(DecodeCacheForce(contact.reaction_cache_secondary, contact.slot_n_W[1], kStepSize).Length(), 0.0);
+    EXPECT_GT(DecodeCacheForce(contact.reaction_cache_quaternary, contact.slot_n_W[3], kStepSize).Length(), 0.0);
     const double gap_bias_sum = contact.stencil_gap_offsets[0] + contact.stencil_gap_offsets[1] +
                                 contact.stencil_gap_offsets[2] + contact.stencil_gap_offsets[3] +
                                 contact.stencil_gap_offsets[4];

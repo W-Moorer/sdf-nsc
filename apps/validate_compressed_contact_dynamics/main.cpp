@@ -168,6 +168,7 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
                                std::size_t& emitted_contacts) {
     auto emit_one = [&](const chrono::ChVector3d& vpA_W,
                         const chrono::ChVector3d& vpB_W,
+                        const chrono::ChVector3d& normal_W,
                         float* reaction_cache,
                         double gap_offset) {
         chrono::ChCollisionInfo cinfo;
@@ -175,7 +176,7 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
         cinfo.modelB = slave->GetCollisionModel().get();
         cinfo.shapeA = nullptr;
         cinfo.shapeB = nullptr;
-        cinfo.vN = contact.n_W;
+        cinfo.vN = normal_W;
         cinfo.vpA = vpA_W;
         cinfo.vpB = vpB_W;
         cinfo.distance = contact.phi_eff + gap_offset;
@@ -184,27 +185,37 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
         ++emitted_contacts;
     };
 
+    auto emit_slot = [&](int slot_index,
+                         const chrono::ChVector3d& fallback_vpA_W,
+                         const chrono::ChVector3d& fallback_vpB_W,
+                         float* reaction_cache) {
+        const chrono::ChVector3d normal_W =
+            (contact.slot_n_W[slot_index].Length2() > 0.0) ? contact.slot_n_W[slot_index] : contact.n_W;
+        const chrono::ChVector3d vpA_W =
+            (contact.slot_x_master_surface_W[slot_index].Length2() > 0.0) ? contact.slot_x_master_surface_W[slot_index]
+                                                                           : fallback_vpA_W;
+        const chrono::ChVector3d vpB_W =
+            (contact.slot_x_W[slot_index].Length2() > 0.0) ? contact.slot_x_W[slot_index] : fallback_vpB_W;
+        emit_one(vpA_W, vpB_W, normal_W, reaction_cache, contact.stencil_gap_offsets[slot_index]);
+    };
+
     if (contact.emission_count <= 1 || !(contact.stencil_half_extent > 1.0e-8)) {
         contact.emission_count = 1;
-        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data(),
-                 contact.stencil_gap_offsets[0]);
+        emit_slot(0, contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d axis_W = Normalized(contact.stencil_axis_W);
     if (axis_W.Length2() <= 0.0) {
         contact.emission_count = 1;
-        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data(),
-                 contact.stencil_gap_offsets[0]);
+        emit_slot(0, contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d offset_W = contact.stencil_half_extent * axis_W;
     if (contact.emission_count == 2) {
-        emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W,
-                 contact.reaction_cache_secondary.data(), contact.stencil_gap_offsets[1]);
-        emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W,
-                 contact.reaction_cache_tertiary.data(), contact.stencil_gap_offsets[2]);
+        emit_slot(1, contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_secondary.data());
+        emit_slot(2, contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_tertiary.data());
         return;
     }
 
@@ -212,37 +223,30 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
         const chrono::ChVector3d secondary_axis_W = Normalized(contact.stencil_axis_secondary_W);
         if (!(secondary_axis_W.Length2() > 0.0) || !(contact.stencil_half_extent_secondary > 1.0e-8)) {
             contact.emission_count = 3;
-            emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data(),
-                     contact.stencil_gap_offsets[0]);
-            emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W,
-                     contact.reaction_cache_secondary.data(), contact.stencil_gap_offsets[1]);
-            emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W,
-                     contact.reaction_cache_tertiary.data(), contact.stencil_gap_offsets[2]);
+            emit_slot(0, contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
+            emit_slot(1, contact.x_master_surface_W - offset_W, contact.x_W - offset_W,
+                      contact.reaction_cache_secondary.data());
+            emit_slot(2, contact.x_master_surface_W + offset_W, contact.x_W + offset_W,
+                      contact.reaction_cache_tertiary.data());
             return;
         }
 
         const chrono::ChVector3d secondary_offset_W = contact.stencil_half_extent_secondary * secondary_axis_W;
         contact.emission_count = 5;
-        emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data(),
-                 contact.stencil_gap_offsets[0]);
-        emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W,
-                 contact.reaction_cache_secondary.data(), contact.stencil_gap_offsets[1]);
-        emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W,
-                 contact.reaction_cache_tertiary.data(), contact.stencil_gap_offsets[2]);
-        emit_one(contact.x_master_surface_W - secondary_offset_W, contact.x_W - secondary_offset_W,
-                 contact.reaction_cache_quaternary.data(), contact.stencil_gap_offsets[3]);
-        emit_one(contact.x_master_surface_W + secondary_offset_W, contact.x_W + secondary_offset_W,
-                 contact.reaction_cache_quinary.data(), contact.stencil_gap_offsets[4]);
+        emit_slot(0, contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
+        emit_slot(1, contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_secondary.data());
+        emit_slot(2, contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_tertiary.data());
+        emit_slot(3, contact.x_master_surface_W - secondary_offset_W, contact.x_W - secondary_offset_W,
+                  contact.reaction_cache_quaternary.data());
+        emit_slot(4, contact.x_master_surface_W + secondary_offset_W, contact.x_W + secondary_offset_W,
+                  contact.reaction_cache_quinary.data());
         return;
     }
 
     contact.emission_count = 3;
-    emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data(),
-             contact.stencil_gap_offsets[0]);
-    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_secondary.data(),
-             contact.stencil_gap_offsets[1]);
-    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_tertiary.data(),
-             contact.stencil_gap_offsets[2]);
+    emit_slot(0, contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
+    emit_slot(1, contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_secondary.data());
+    emit_slot(2, contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_tertiary.data());
 }
 
 void BuildBasis(const chrono::ChVector3d& n_W,
@@ -309,13 +313,17 @@ CompressedContactConfig MakeDynamicConfig() {
     cfg.max_subpatch_depth = 2;
     cfg.min_dense_points_per_subpatch = 12;
     cfg.max_reduced_points_per_patch = 6;
+    cfg.max_dynamic_reduced_points_per_patch = 8;
     cfg.warm_start_match_radius = 6.0e-3;
     cfg.temporal_load_regularization = 1.0e-6;
     cfg.temporal_reference_blend = 0.03;
     cfg.temporal_force_transport_blend = 0.6;
+    cfg.temporal_stencil_blend = 0.28;
     cfg.temporal_slip_velocity_scale = 0.12;
     cfg.temporal_approach_velocity_scale = 0.06;
     cfg.temporal_separation_velocity_scale = 0.04;
+    cfg.tangential_heterogeneity_threshold = 0.14;
+    cfg.tangential_emission_threshold = 0.10;
     cfg.max_wrench_error = 0.08;
     cfg.max_cop_error = 2.5e-3;
     cfg.max_gap_error = 0.05;
