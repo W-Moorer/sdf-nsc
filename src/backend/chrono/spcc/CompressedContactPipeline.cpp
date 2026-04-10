@@ -143,8 +143,20 @@ chrono::ChVector3d DecodeReactionCacheWorldForce(const std::array<float, 6>& rea
 }
 
 chrono::ChVector3d DecodeTotalReactionForce(const ReducedContactPoint& contact) {
-    return DecodeReactionCacheWorldForce(contact.reaction_cache_primary, contact.n_W) +
-           DecodeReactionCacheWorldForce(contact.reaction_cache_secondary, contact.n_W);
+    const chrono::ChVector3d center_force_W =
+        DecodeReactionCacheWorldForce(contact.reaction_cache_primary, contact.n_W);
+    const chrono::ChVector3d negative_force_W =
+        DecodeReactionCacheWorldForce(contact.reaction_cache_secondary, contact.n_W);
+    const chrono::ChVector3d positive_force_W =
+        DecodeReactionCacheWorldForce(contact.reaction_cache_tertiary, contact.n_W);
+
+    if (contact.emission_count <= 1) {
+        return center_force_W;
+    }
+    if (contact.emission_count == 2) {
+        return negative_force_W + positive_force_W;
+    }
+    return center_force_W + negative_force_W + positive_force_W;
 }
 
 chrono::ChVector3d ChooseStencilAxis(const ReducedSupportAggregate& support, const DenseSubpatch& subpatch) {
@@ -182,17 +194,29 @@ int ChooseEmissionCount(const ReducedSupportAggregate& support,
     const chrono::ChVector3d tangential_force_W =
         support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
                                         subpatch.avg_normal_W;
+    const chrono::ChVector3d tangential_velocity_W =
+        support.v_rel_W - chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W) * subpatch.avg_normal_W;
     const double total_force_norm = support.allocated_force_W.Length();
     const double tangential_ratio = tangential_force_W.Length() / std::max(total_force_norm, 1.0e-12);
     const double coverage_ratio = support.coverage_radius / std::max(subpatch.diameter, 1.0e-9);
     const double load_ratio = std::max(0.0, support.allocated_load) / std::max(mean_allocated_load, 1.0e-12);
+    const double approach_speed = std::max(0.0, -chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W));
+    const double tangential_speed = tangential_velocity_W.Length();
+    const double slip_dominance =
+        tangential_speed / std::max(tangential_speed + 1.5 * approach_speed, 1.0e-9);
 
-    if (tangential_ratio < 0.12 || coverage_ratio < 0.08 || load_ratio < 0.5) {
+    if (tangential_ratio < 0.12 || coverage_ratio < 0.08 || load_ratio < 0.45) {
         return 1;
     }
 
-    const double expand_score = 1.5 * tangential_ratio + 0.75 * coverage_ratio + 0.25 * std::min(load_ratio, 2.0);
-    return (expand_score > 0.7) ? 2 : 1;
+    const double expand_score =
+        1.40 * tangential_ratio + 0.85 * coverage_ratio + 0.30 * std::min(load_ratio, 2.5) +
+        0.35 * slip_dominance;
+    if (expand_score > 1.18 && tangential_ratio > 0.24 && coverage_ratio > 0.14 && support.dense_members >= 3 &&
+        slip_dominance > 0.55) {
+        return 3;
+    }
+    return (expand_score > 0.72 && slip_dominance > 0.22) ? 2 : 1;
 }
 
 double ChooseStencilHalfExtent(const ReducedSupportAggregate& support,
@@ -205,10 +229,22 @@ double ChooseStencilHalfExtent(const ReducedSupportAggregate& support,
     const chrono::ChVector3d tangential_force_W =
         support.allocated_force_W - chrono::Vdot(support.allocated_force_W, subpatch.avg_normal_W) *
                                         subpatch.avg_normal_W;
+    const chrono::ChVector3d tangential_velocity_W =
+        support.v_rel_W - chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W) * subpatch.avg_normal_W;
     const double total_force_norm = support.allocated_force_W.Length();
     const double tangential_ratio = tangential_force_W.Length() / std::max(total_force_norm, 1.0e-12);
+    const double approach_speed = std::max(0.0, -chrono::Vdot(support.v_rel_W, subpatch.avg_normal_W));
+    const double tangential_speed = tangential_velocity_W.Length();
+    const double slip_dominance =
+        tangential_speed / std::max(tangential_speed + 1.5 * approach_speed, 1.0e-9);
     const double tangent_scale = std::clamp(0.5 + tangential_ratio, 0.5, 1.0);
-    return tangent_scale * std::min(0.25 * support.coverage_radius, 0.12 * subpatch.diameter);
+    const double motion_scale = std::clamp(0.55 + 0.45 * slip_dominance, 0.55, 1.0);
+    double extent = tangent_scale * motion_scale *
+                    std::min(0.28 * support.coverage_radius, 0.14 * subpatch.diameter);
+    if (emission_count >= 3) {
+        extent *= 0.82;
+    }
+    return extent;
 }
 
 void BuildSupportBasis(const chrono::ChVector3d& n_W,

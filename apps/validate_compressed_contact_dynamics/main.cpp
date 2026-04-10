@@ -156,6 +156,7 @@ void TransferReducedReactionCaches(const std::vector<ReducedContactPoint>& previ
             if (current.persistent_id == previous.persistent_id && current.support_id == previous.support_id) {
                 current.reaction_cache_primary = previous.reaction_cache_primary;
                 current.reaction_cache_secondary = previous.reaction_cache_secondary;
+                current.reaction_cache_tertiary = previous.reaction_cache_tertiary;
                 break;
             }
         }
@@ -184,19 +185,31 @@ void EmitReducedContactStencil(chrono::ChSystem* sys,
     };
 
     if (contact.emission_count <= 1 || !(contact.stencil_half_extent > 1.0e-8)) {
+        contact.emission_count = 1;
         emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d axis_W = Normalized(contact.stencil_axis_W);
     if (axis_W.Length2() <= 0.0) {
+        contact.emission_count = 1;
         emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
         return;
     }
 
     const chrono::ChVector3d offset_W = contact.stencil_half_extent * axis_W;
-    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_primary.data());
-    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_secondary.data());
+    if (contact.emission_count == 2) {
+        emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W,
+                 contact.reaction_cache_secondary.data());
+        emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W,
+                 contact.reaction_cache_tertiary.data());
+        return;
+    }
+
+    contact.emission_count = 3;
+    emit_one(contact.x_master_surface_W, contact.x_W, contact.reaction_cache_primary.data());
+    emit_one(contact.x_master_surface_W - offset_W, contact.x_W - offset_W, contact.reaction_cache_secondary.data());
+    emit_one(contact.x_master_surface_W + offset_W, contact.x_W + offset_W, contact.reaction_cache_tertiary.data());
 }
 
 void BuildBasis(const chrono::ChVector3d& n_W,

@@ -39,8 +39,10 @@ struct ReducedContactPoint {
     chrono::ChVector3d allocated_force_W;
     double stencil_half_extent = 0.0;
     double mu = 0.0;
+    // Fixed cache slots: center, negative tangent offset, positive tangent offset.
     std::array<float, 6> reaction_cache_primary{};
     std::array<float, 6> reaction_cache_secondary{};
+    std::array<float, 6> reaction_cache_tertiary{};
 };
 
 struct CompressionStats {
