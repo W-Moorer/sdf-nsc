@@ -86,7 +86,7 @@ def main():
 
     ax = axes[0]
     ax.plot(mesh_t, ref_p, linestyle="--", color=colors["ref"], linewidth=1.8, label="Analytic reference")
-    ax.plot(mesh_t, mesh_p, color=colors["mesh"], linewidth=1.5, label="Chrono native mesh")
+    ax.plot(mesh_t, mesh_p, color=colors["mesh"], linewidth=1.5, label="Native mesh")
     ax.plot(sdf1_t, sdf1_p, color=colors["sdf1"], linewidth=1.5, linestyle="--", dashes=(6, 3),
             label="SDF 1st-order")
     ax.plot(sdf2_t, sdf2_p, color=colors["sdf2"], linewidth=1.6, label="SDF 2nd-order")

@@ -137,6 +137,8 @@ public:
     // Direct accessors for Simple Gear Case (angular velocity in parent/world frame)
     chrono::ChVector3d GetGear1AngVelParent() const;
     chrono::ChVector3d GetGear2AngVelParent() const;
+    bool GetGear1BodySnapshot(BodyDebugSnapshot& out) const;
+    bool GetGear2BodySnapshot(BodyDebugSnapshot& out) const;
 
 private:
     std::unique_ptr<chrono::ChSystemNSC> m_system;

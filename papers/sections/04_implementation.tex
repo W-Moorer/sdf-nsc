@@ -1,6 +1,17 @@
-\subsection{基于 NanoVDB 的 Hessian 差分提取}
+本节给出上述局部几何感知接触模型的计算实现。其计算结构围绕四个层面展开：稀疏窄带 SDF 上的局部几何场离散表示，patch 级几何量的坐标变换与封装，面向候选样本的分层枚举加速，以及几何前馈向互补求解主链的接口化写回。整体上，计算实现遵循与方法节一致的原则，即局部几何信息只修正接触约束输入，而不改变底层 LCP 模块的动力学结构。
 
-在当前实现中，NanoVDB 默认采用 Trilinear 插值进行 SDF 查询\cite{museth2021nanovdb}。考虑到离散距离场在体素交界附近的高阶不连续性，本文并不直接对标量距离场 $\Phi$ 求 Hessian，而是先查询单位法向场
+\subsection{稀疏窄带 SDF 上的局部几何场离散表示}
+
+计算实现采用 NanoVDB 提供的 Trilinear 插值查询接口\cite{museth2021nanovdb}，并以围绕几何边界构建的稀疏窄带 SDF（Sparse Narrow-Band SDF, SNB-SDF）作为底层隐式几何表示。如图 \ref{fig:snb_sdf} 所示，连续距离场仅在 $|d|\le\tau$ 的窄带区域内保留活动体素，远离界面的体素则被剪枝。这样既避免了稠密体素网格的 $\mathcal{O}(N^3)$ 存储代价，也使 $\Phi$、$\nabla\Phi$ 以及局部二阶几何量的查询集中于真正与接触相关的邻域。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.98\linewidth]{SNB_SDF_Diagram_Compact_V2.pdf}
+    \caption{稀疏窄带 SDF（Sparse Narrow-Band SDF, SNB-SDF）示意图。左图展示连续有向距离场、几何边界 $d=0$ 以及窄带阈值 $\pm\tau$；右下图展示离散体素存储方式，其中仅窄带内的体素被保留为活动体素，远离边界的体素被剪枝。}
+    \label{fig:snb_sdf}
+\end{figure}
+
+考虑到离散距离场在体素交界附近的高阶不连续性，计算中并不直接对标量距离场 $\Phi$ 求 Hessian，而是先查询单位法向场
 \begin{equation}
     \mathbf{n} = \frac{\nabla \Phi}{\|\nabla \Phi\|},
 \end{equation}
@@ -8,32 +19,32 @@
 \begin{equation}
     \mathbf{W} \approx \nabla \mathbf{n}.
 \end{equation}
-实现中，差分步长固定取为
+差分步长取为
 \begin{equation}
     h = 2 \cdot \text{voxel\_size}.
 \end{equation}
 这样得到的 $\mathbf{W}$ 对应于离散 SDF 法向流形上的 Weingarten 映射近似。
 
-\subsection{张量坐标变换与 Patch 几何封装}
+\subsection{局部几何量的坐标映射与 Patch 封装}
 
-每个活动接触样本首先在模型坐标系下查询 $\Phi$、单位法向和曲率张量 $\mathbf{W}_M$。随后通过刚体姿态矩阵映射到世界坐标系：
+每个活动接触样本首先在模型坐标系下查询 $\Phi$、单位法向和曲率张量 $\mathbf{W}_M$，随后通过刚体姿态矩阵映射到世界坐标系：
 \begin{equation}
     \mathbf{W}_W = \mathbf{R}_{WM}\mathbf{W}_M\mathbf{R}_{WM}^T.
 \end{equation}
 
-在活动集合构造阶段，系统首先依据预测法向相对速度执行 separating-velocity cutoff，滤除法向上已明显分离的候选样本；随后，其余候选样本再按空间半径阈值与法向夹角阈值聚类为局部 patch。patch 法向采用样本平均并重新归一化，而穿透深度 $\Phi$、梯度与 Hessian 等主几何量保留 deepest sample 的取值。经此处理后，每个 patch 被封装为可直接送入接触约束模块的局部几何代理。
+在活动集合构造阶段，候选样本首先依据预测法向相对速度执行 separating-velocity cutoff，以滤除法向上已明显分离的样本；随后，其余候选样本按空间半径阈值与法向夹角阈值聚类为局部 patch。patch 法向采用样本平均并重新归一化，而穿透深度 $\Phi$、梯度与 Hessian 等主几何量保留 deepest sample 的取值。经此处理后，每个 patch 被封装为可直接参与接触约束组装的局部几何代理。
 
-\subsection{基于 OBB/BVH 的分层候选检测}
+\subsection{基于 OBB/BVH 的候选样本分层枚举}
 
-为降低连续滑移类算例中大规模从动体表面采样所带来的查询开销，当前实现还在样本侧引入了一个静态的 OBB/BVH broad-phase。该层次结构在从动体局部坐标系下构建，每个节点保存局部 OBB、节点代表采样点以及相应的包围半径；仿真过程中，仅需随刚体位姿将节点代表点映射到世界坐标，再映射到主动体 SDF 的模型坐标系下执行轻量 $\Phi$ 查询。
+为降低连续滑移类算例中大规模从动体表面采样带来的查询开销，计算实现进一步在样本侧引入静态 OBB/BVH broad-phase。该层次结构在从动体局部坐标系下构建，每个节点保存局部 OBB、节点代表采样点以及相应的包围半径；仿真过程中，仅需随刚体位姿将节点代表点映射到世界坐标，再映射到主动体 SDF 的模型坐标系下执行轻量 $\Phi$ 查询。
 
-节点级剪枝遵循保守原则：实现首先利用主动体几何的包围球下界过滤明显不可能接触的节点，再结合节点代表点的 $\Phi$ 取值、节点包围半径以及一步运动余量进行 SDF 保守剪枝。只有未被剪除的叶节点样本才会进入后续的精确 $(\Phi,\nabla\Phi)$ 乃至 Hessian 查询。由此，OBB/BVH 仅改变候选枚举方式，而不改变叶节点内的接触样本构造、patch 聚类及曲率前馈公式，因此对最终接触结果保持无损。
+节点级剪枝遵循保守原则。具体而言，首先利用主动体几何的包围球下界过滤明显不可能接触的节点，再结合节点代表点的 $\Phi$ 取值、节点包围半径以及一步运动余量进行 SDF 保守剪枝。只有未被剪除的叶节点样本才会进入后续的精确 $(\Phi,\nabla\Phi)$ 乃至 Hessian 查询。由此，OBB/BVH 仅改变候选枚举方式，而不改变叶节点内的接触样本构造、patch 聚类及曲率前馈公式，因此对最终接触结果保持无损。
 
-该 broad-phase 默认服务于 \texttt{SlidingPatch} 路径中的连续滑移算例，如工业凸轮、偏心圆盘--滚子基准以及 Onset Stress Benchmark；对于 Twin Gear 这类已具备强时间相干局部扫描且接触切换更为紧凑的 \texttt{CompactDiscrete} 算例，当前默认仍保持关闭，仅作为离线可选优化。
+该 broad-phase 默认服务于 \texttt{SlidingPatch} 路径中的连续滑移算例，如工业凸轮、偏心圆盘--滚子基准以及 Onset Stress Benchmark；对于 Twin Gear 这类已具备强时间相干局部扫描且接触切换更为紧凑的 \texttt{CompactDiscrete} 算例，则默认保持关闭，仅作为离线可选优化。
 
-\subsection{RHS 闭环注入与互补模块耦合}
+\subsection{几何前馈的 RHS 写回与求解接口}
 
-对于每个活动 patch，系统根据当前步的接触点相对速度 $\mathbf{v}_{rel}$ 计算二阶曲率补偿
+对于每个活动 patch，计算实现根据当前步的接触点相对速度 $\mathbf{v}_{rel}$ 计算二阶曲率补偿
 \begin{equation}
     C_{curve} = \frac{1}{2} (\Delta t)^2 (\mathbf{v}_{rel})^T \mathbf{W}_{W} \mathbf{v}_{rel},
 \end{equation}
@@ -42,9 +53,9 @@
     \Phi_{eff} = \Phi + C_{curve}.
 \end{equation}
 
-随后，该 $\Phi_{eff}$ 被直接写入接触约束容器，并作为 LCP/NSC 主方程右端项的一部分送入底层互补模块。由此，实现保持了对白盒寄生式注入结构的遵循，即不改写互补求解主链本身，而是通过高阶几何前馈修正接触约束输入。
+随后，$\Phi_{eff}$ 被写回接触约束接口，并作为 LCP 主方程右端项的一部分进入底层互补模块。由此，计算实现保持了方法节中的寄生式 RHS 注入结构，即不改写互补求解主链本身，而是通过局部几何前馈修正接触约束输入。
 
-算法 \ref{alg:slidingpatch} 与算法 \ref{alg:compactdiscrete} 分别概括了当前实现中两类局部接触表示的核心执行流程。二者共享同一底层 NSC/LCP 求解主链，但在候选样本筛选、patch 几何封装以及曲率项启用时机上存在本质区别。
+算法 \ref{alg:slidingpatch} 与算法 \ref{alg:compactdiscrete} 分别给出了两类局部接触表示的计算路径。二者共享同一底层 LCP 求解主链，但在候选样本筛选、patch 几何封装以及曲率项启用时机上存在本质区别。
 
 \begin{algorithm}[htbp]
 \caption{面向光滑连续接触的 \texttt{SlidingPatch} 流程}
@@ -65,7 +76,7 @@
 \Else
     \State 置 $\Phi_{eff} \gets \Phi$
 \EndIf
-\State 将活动 patch 写入 NSC/LCP 接触容器
+\State 将活动 patch 写入 LCP 接触容器
 \end{algorithmic}
 \end{algorithm}
 
@@ -87,6 +98,6 @@
 \Else
     \State 置 $\Phi_{eff} \gets \Phi$
 \EndIf
-\State 将紧凑活动 patch 写入 NSC/LCP 接触容器
+\State 将紧凑活动 patch 写入 LCP 接触容器
 \end{algorithmic}
 \end{algorithm}

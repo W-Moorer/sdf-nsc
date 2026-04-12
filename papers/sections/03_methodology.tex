@@ -1,15 +1,17 @@
-为了直观展示本工作提出的方法与经典基于多边形、一阶 SDF 模型的架构差异，图 \ref{fig:flowchart} 对比了三种不同的接触动力学计算管线。
+本节给出本文的局部几何感知接触建模方法。方法建立在统一的 Moreau--Jean 时步与互补求解框架之上，其核心并非替换既有硬接触求解主链，而是将接触区附近的局部几何信息作为对法向间隙预测的修正，写入法向非穿透子问题。由此，局部几何表示、曲率表征与互补约束之间形成了一个保持原有动力学结构不变的耦合方式。图 \ref{fig:flowchart} 对比了三种接触动力学计算管线：传统基于多边形的接触建模、仅使用一阶 SDF 局部几何的接触建模，以及本文采用局部几何感知与 regime-specific 局部表示的互补式接触建模。
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\columnwidth]{flowchart_model.pdf}
-    \caption{经典 Mesh 接触模型、传统一阶 SDF 接触模型与本文提出的具备 Hessian 曲率感知的二阶 SDF 接触模型的管线架构对比。}
+    \caption{Three contact-modeling pipelines considered in this work: a classical mesh-based pipeline, a first-order SDF-based pipeline, and the proposed geometry-aware complementarity-based rigid-contact pipeline with curvature feedforward and regime-specific local representations.}
     \label{fig:flowchart}
 \end{figure}
 
-\subsection{基础 NSC 局部一阶预测缺陷模型}
+基于上述建模思路，方法推导围绕三个相互衔接的环节展开。首先，分析传统一阶局部线性化在高曲率滑移和接触状态切换中所导致的间隙预测失配。随后，以 SDF 法向流形为基础构造局部曲率表征，并将其转化为对接触间隙的几何前馈修正。最后，在统一的 LCP 主链内引入面向接触状态的局部表示配置，使局部几何信息能够在不同接触 regime 下以相匹配的方式进入接触模型。
 
-在基于一阶线性预测的 LCP 接触处理中，为了在整个时间步 $\Delta t$ 后阻止两物体表面过度穿透，下一时刻速度 $\mathbf{v}^{l+1}$ 需满足局部 Signorini 非穿透条件的一阶线性化：
+\subsection{互补式法向约束中的局部一阶间隙预测局限}
+
+在经典的速度级互补接触处理中，为了在整个时间步 $\Delta t$ 后维持两物体之间的非穿透约束，下一时刻速度 $\mathbf{v}^{l+1}$ 通常满足局部 Signorini 条件的一阶线性化：
 
 \begin{equation}
     \Phi(\mathbf{q}^{l+1}) \approx \Phi(\mathbf{q}^l) + \Delta t \, \mathbf{n}^T \mathbf{v}^{l+1} \geq 0
@@ -22,9 +24,9 @@
 
 在传统一阶模型中，当时间步较大或接触点沿高曲率边界发生快速切向滑移时，局部切平面外推会偏离真实表面流形，从而使 RHS 中的间隙预测出现系统性失真。这类误差会被非光滑互补主方程放大为非物理冲量，最终表现为速度曲线中的高频毛刺与脉冲。
 
-\subsection{接触流形 Weingarten 映射与曲率解析}
+\subsection{基于 Weingarten 映射的局部曲率表征}
 
-为缓解一阶切平面模型的几何失配，本文将接触间隙的局部展开提升到二阶。实现上，我们并不直接对标量距离场 $\Phi$ 求 Hessian，而是先构造单位法向场
+为刻画局部曲率对间隙预测的影响，本文将接触间隙的局部展开由一阶提升到二阶。具体地，本文不直接对标量距离场 $\Phi$ 求原始 Hessian，而是先构造单位法向场
 \begin{equation}
     \mathbf{n}(\mathbf{x}) = \frac{\nabla \Phi(\mathbf{x})}{\|\nabla \Phi(\mathbf{x})\|},
 \end{equation}
@@ -43,36 +45,129 @@
     C_{curve} = \frac{1}{2} (\Delta t)^2 \, \mathbf{v}_{rel}^T \mathbf{W} \mathbf{v}_{rel}.
 \end{equation}
 
-\subsection{LCP 主方程右端项的曲率前馈注入}
+\subsection{法向 LCP 子问题中的局部几何前馈注入}
 
-直接改写互补问题左端的动力学矩阵会破坏底层 NSC/LCP 结构的稳定性与可复用性。为保持互补主方程的形式不变，本文采用寄生式 RHS 注入策略，将二阶几何信息以前馈偏置的形式写入有效接触间隙：
+为了更明确地说明本文的注入位置，先把时间步进下的法向接触子问题写成标准的互补形式。设当前时间步存在 $m$ 个活动接触 patch，将所有广义速度堆叠为 $\mathbf{v}\in\mathbb{R}^{n_v}$，质量矩阵记为 $\mathbf{M}$，法向接触 Jacobian 记为 $\mathbf{J}_n\in\mathbb{R}^{m\times n_v}$，其第 $i$ 行满足
+\begin{equation}
+    (\mathbf{J}_n \mathbf{v})_i = \mathbf{n}_i^T \mathbf{v}_{rel,i},
+\end{equation}
+也即给出第 $i$ 个接触在当前广义速度下的相对法向速度。若暂时只保留与法向非穿透相关的部分，则 Moreau--Jean 型离散动量更新可写为
+\begin{equation}
+    \mathbf{M}(\mathbf{v}^{l+1} - \mathbf{v}^{l}) = \Delta t\,\mathbf{f}^{l}_{ext} + \mathbf{J}_n^T \boldsymbol{\lambda}_n,
+\end{equation}
+其中 $\boldsymbol{\lambda}_n\in\mathbb{R}^{m}$ 为时间步内各活动接触的法向冲量。若把不含新增法向冲量的部分记为自由速度
+\begin{equation}
+    \mathbf{v}^{free} = \mathbf{v}^{l} + \mathbf{M}^{-1}\Delta t\,\mathbf{f}^{l}_{ext},
+\end{equation}
+则有
+\begin{equation}
+    \mathbf{v}^{l+1} = \mathbf{v}^{free} + \mathbf{M}^{-1}\mathbf{J}_n^T \boldsymbol{\lambda}_n.
+\end{equation}
+
+对所有活动接触同时采用一阶线性化的 Signorini 非穿透条件，可得
+\begin{equation}
+    \mathbf{w}_n = \boldsymbol{\Phi} + \Delta t\,\mathbf{J}_n \mathbf{v}^{l+1} \ge 0,
+\end{equation}
+其中 $\boldsymbol{\Phi}=[\Phi_1,\ldots,\Phi_m]^T$ 为当前时刻所有 patch 的法向间隙。再结合互补条件
+\begin{equation}
+    \boldsymbol{\lambda}_n \ge 0,\qquad
+    \mathbf{w}_n \ge 0,\qquad
+    \boldsymbol{\lambda}_n^T\mathbf{w}_n = 0,
+\end{equation}
+即可得到标准的法向 LCP 子问题
+\begin{equation}
+    \mathbf{w}_n
+    =
+    \underbrace{\Delta t\,\mathbf{J}_n\mathbf{M}^{-1}\mathbf{J}_n^T}_{\mathbf{A}_n}
+    \boldsymbol{\lambda}_n
+    +
+    \underbrace{\left(\boldsymbol{\Phi} + \Delta t\,\mathbf{J}_n \mathbf{v}^{free}\right)}_{\mathbf{b}_n},
+    \qquad
+    0 \le \boldsymbol{\lambda}_n \perp \mathbf{w}_n \ge 0.
+\end{equation}
+由此可见，该法向 LCP 子问题在离散时间步上以法向冲量向量 $\boldsymbol{\lambda}_n$ 为未知量，其求解目标是使更新后的法向速度与间隙预测共同满足 Signorini 型非穿透互补条件。这里 $\mathbf{A}_n$ 反映的是质量分布与接触 Jacobian 耦合后的等效动力学映射，$\mathbf{b}_n$ 则汇集了当前几何间隙与自由运动预测项。
+
+在完整的摩擦接触系统中，切向未知量、摩擦锥或双边约束通常会与法向块共同组装为更一般的 MLCP/块互补系统；但对本文最关键的一点是，局部几何前馈只注入法向非穿透通道，而不改写左端动力学耦合块本身。因此，我们只需在上式中的 $\mathbf{b}_n$ 上进行修正，而无需改写 $\mathbf{A}_n$ 的结构、稀疏性和求解流程。
+
+这一选择并非单纯出于工程便利，而是由离散模型本身决定的。若把二阶曲率项视为未知速度的内生组成，则更严格的写法应为
+\begin{equation}
+    C_{curve,i}(\mathbf{v}^{l+1})
+    =
+    \frac{1}{2}(\Delta t)^2
+    (\mathbf{v}_{rel,i}^{l+1})^T
+    \mathbf{W}_i
+    \mathbf{v}_{rel,i}^{l+1},
+\end{equation}
+其中 $\mathbf{v}_{rel,i}^{l+1}$ 本身由未知广义速度 $\mathbf{v}^{l+1}$ 决定。此时一旦代入
+\begin{equation}
+    \mathbf{v}^{l+1}
+    =
+    \mathbf{v}^{free}
+    +
+    \mathbf{M}^{-1}\mathbf{J}_n^T \boldsymbol{\lambda}_n,
+\end{equation}
+则互补残差会变为
+\begin{equation}
+    \mathbf{w}_n
+    =
+    \boldsymbol{\Phi}
+    +
+    \mathbf{c}_{curve}(\boldsymbol{\lambda}_n)
+    +
+    \Delta t\,\mathbf{J}_n\mathbf{v}^{free}
+    +
+    \Delta t\,\mathbf{J}_n\mathbf{M}^{-1}\mathbf{J}_n^T\boldsymbol{\lambda}_n,
+\end{equation}
+其中 $\mathbf{c}_{curve}(\boldsymbol{\lambda}_n)$ 已经是关于未知冲量的二次项。也就是说，只要把曲率修正真正并入左端未知量耦合，原本线性的法向互补子问题就会被推向非线性互补问题（NCP），从而不再属于当前求解链所针对的标准 LCP 范畴。本文的目标不是重新设计一套新的非线性接触求解器，而是在现有 LCP 主链上引入尽可能低侵入的几何修正，因此必须把该项冻结为当前步已知的显式前馈量。
+
+直接改写互补问题左端的动力学矩阵会破坏底层 LCP 结构的稳定性与可复用性。为保持互补主方程的形式不变，本文采用寄生式 RHS 注入策略，将二阶几何信息以前馈偏置的形式写入有效接触间隙：
 \begin{equation}
     \Phi_{eff} = \Phi + C_{curve}.
 \end{equation}
 
-由此，原始一阶非穿透条件可重写为
+将所有 patch 的曲率补偿堆叠为 $\mathbf{c}_{curve}=[C_{curve,1},\ldots,C_{curve,m}]^T$，则有
 \begin{equation}
-    \Delta t \, \mathbf{n}^T \mathbf{v}^{l+1} \geq - \Phi_{eff}.
+    \boldsymbol{\Phi}_{eff} = \boldsymbol{\Phi} + \mathbf{c}_{curve},
+\end{equation}
+从而原始一阶非穿透条件可重写为
+\begin{equation}
+    \mathbf{w}_n^{eff} = \boldsymbol{\Phi}_{eff} + \Delta t\,\mathbf{J}_n \mathbf{v}^{l+1} \ge 0.
+\end{equation}
+代回速度消元形式，可得注入后的法向 LCP 为
+\begin{equation}
+    \mathbf{w}_n^{eff}
+    =
+    \mathbf{A}_n \boldsymbol{\lambda}_n
+    +
+    \underbrace{\left(\boldsymbol{\Phi}_{eff} + \Delta t\,\mathbf{J}_n \mathbf{v}^{free}\right)}_{\mathbf{b}_n^{eff}}
+    =
+    \mathbf{A}_n \boldsymbol{\lambda}_n + \mathbf{b}_n + \mathbf{c}_{curve},
+    \qquad
+    0 \le \boldsymbol{\lambda}_n \perp \mathbf{w}_n^{eff} \ge 0.
 \end{equation}
 
-也即，在不改写底层互补模块整体结构的前提下，通过修正 RHS 中的接触间隙，向 LCP/NSC 主方程注入局部二阶几何预测信息。该处理保留了传统非光滑接触框架的主干求解流程，同时将高曲率表面上的运动学提前量并入接触判定。
+因此，本文所谓“注入”在数学上就是：\textbf{保持 LCP 左端矩阵 $\mathbf{A}_n$ 不变，只把由局部曲率预测得到的 $\mathbf{c}_{curve}$ 加到右端项 $\mathbf{b}_n$ 上。} 这样做有三个直接好处。第一，底层求解器的矩阵装配、预条件结构和互补迭代流程都无需改写；第二，当 $\mathbf{c}_{curve}=\mathbf{0}$ 时系统自动退化回原始一阶模型；第三，曲率信息被限制在 patch 级 gap 预测中，只影响“是否需要以及何时需要法向冲量”这一判定，而不会额外引入新的动力学自由度。
 
-\subsection{接触类型感知的局部接触表示}
+从数值稳定性的角度看，这一点同样关键。矩阵 $\mathbf{A}_n=\Delta t\,\mathbf{J}_n\mathbf{M}^{-1}\mathbf{J}_n^T$ 描述的是活动接触之间通过有效质量传递的全局耦合关系，它的条件数、稀疏模式以及块结构直接决定了互补迭代的收敛品质。相比之下，Hessian/Weingarten 张量来自离散 SDF 的局部差分估计，对体素分辨率、插值误差、最近点分支切换以及 patch 几何代表点都更为敏感。若将这类二阶信息直接吸收到左端动力学块中，局部几何噪声就会被传播为整个接触系统的耦合扰动；而将其保留在 RHS 中，则等价于仅修正各 patch 的局部间隙预测与接触激活阈值，其影响范围保持在单 patch 级别，并且可以通过门控、聚类和 regime 配置进行保守控制。也正因为如此，本文将二阶曲率项定位为\textbf{几何前馈（geometric feedforward）}，而不是新的动力学耦合项。
 
-本文并不假设单一接触代理能够同样适用于所有接触场景，而是根据局部接触的几何与运动学特征采用两类不同的接触表示。对于工业凸轮、偏心圆盘-滚子以及 Onset Stress 等光滑连续滑移接触，本文采用 \texttt{SlidingPatch} 表示：接触集合在时间上保持 persistent manifold 身份，并通过 representative query、局部拟合与候选筛选来维持连续的 patch 级几何更新。对于 Twin Gear 一类紧凑主导点及非光滑奇异边界接触，本文采用 \texttt{CompactDiscrete} 表示：patch 的目标主要是进行去重、法向稳健化与主导几何保留，而不再追求连续滑移流形的时间追踪。
+也即，在不改写底层互补模块整体结构的前提下，通过修正 RHS 中的接触间隙，向 LCP 主方程注入局部二阶几何预测信息。该处理保留了传统非光滑接触框架的主干求解流程，同时将高曲率表面上的运动学提前量并入接触判定。
 
-这一分流的核心思想在于：高阶曲率项本身并不保证对所有接触都产生正收益，它只有在与接触类型相匹配的局部流形表示中才能发挥稳定作用。对光滑连续接触而言，局部流形的持续追踪是二阶前馈获得净增益的前提；而对非光滑或分支切换显著的接触而言，更保守的紧凑离散表示反而有助于抑制由高阶几何噪声引起的非物理脉冲。
+\subsection{面向接触状态的局部几何表示配置}
 
-图 \ref{fig:contact_regime_flow} 进一步总结了本文在运行时的三阶段处理路径：系统首先执行候选样本预处理，并可在样本侧启用 OBB/BVH 分层 broad-phase 以降低候选查询开销；随后在局部流形构造阶段根据接触的滑移连续性与主导几何特征选择 \texttt{SlidingPatch} 或 \texttt{CompactDiscrete}；最后将修正后的有效间隙统一写回 NSC/LCP 主方程。
+本文并不假设单一接触代理能够同样适用于所有接触场景，而是为不同接触类型预设两类局部接触 regime。当前实现不包含统一的运行时接触分类器，而是在算例或应用配置层显式指定所使用的接触表示。对于工业凸轮、偏心圆盘-滚子以及 Onset Stress 等光滑连续滑移接触，当前实现采用 \texttt{SlidingPatch} 表示：接触集合在时间上保持 persistent manifold 身份，并通过 representative query、局部拟合与候选筛选来维持连续的 patch 级几何更新。对于 Twin Gear 以及对心碰撞等紧凑主导、冲量主导或非光滑奇异边界接触，当前实现采用 \texttt{CompactDiscrete} 表示：patch 的目标主要是进行去重、法向稳健化与主导几何保留，而不再追求连续滑移流形的时间追踪。
+
+这一配置策略的核心思想在于：曲率前馈项本身并不保证对所有接触都产生正收益，它只有在与接触类型相匹配的局部流形表示中才能发挥稳定作用。对光滑连续接触而言，局部流形的持续追踪是几何前馈获得净增益的前提；而对非光滑、冲量主导或分支切换显著的接触而言，更保守的紧凑离散表示反而有助于抑制由局部几何噪声引起的非物理脉冲。
+
+图 \ref{fig:contact_regime_flow} 进一步总结了当前实现支持的两条 regime-specific 处理路径：系统首先执行候选样本预处理，并可在样本侧启用 OBB/BVH 分层 broad-phase 以降低候选查询开销；随后按照算例或应用中预设的 regime 配置执行 \texttt{SlidingPatch} 或 \texttt{CompactDiscrete} 路径；最后将修正后的有效间隙统一写回 LCP 主方程。
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\columnwidth]{flowchart_contact_regime.pdf}
-    \caption{Contact-type-aware routing used in the proposed framework. The runtime pipeline is organized into candidate preprocessing, regime-aware manifold construction, and constraint injection. Candidate samples may first pass through an optional sample-side OBB/BVH broad-phase; smooth continuous contacts are then processed by \texttt{SlidingPatch}, while compact or singular contacts are processed by \texttt{CompactDiscrete}, and both branches finally inject effective gaps into the same NSC/LCP solve chain.}
+    \caption{Regime-specific processing paths used in the current implementation. The pipeline is organized into candidate preprocessing, preconfigured manifold construction, and constraint injection. Candidate samples may first pass through an optional sample-side OBB/BVH broad-phase; depending on the regime preset in a given case or application, the solver then follows either the \texttt{SlidingPatch} path or the \texttt{CompactDiscrete} path, and both branches finally inject effective gaps into the same LCP solve chain.}
     \label{fig:contact_regime_flow}
 \end{figure}
 
-\subsection{Patch 级接触聚类与局部流形约化}
+\subsection{基于 Patch 聚类的局部接触流形约化}
 
 由于离散采样会在同一局部接触区产生多个近邻样本，若逐点直接将所有 SDF 查询结果送入互补模块，法向噪声与重复接触点会显著放大数值抖动。为此，本文在活动接触集合上引入 patch 级聚类策略。
 
@@ -98,3 +193,9 @@
 共同表征，并进一步参与互补模块中的接触约束组装。
 
 这种处理兼顾了两个目标：一方面通过法向平均降低离散点接触带来的方向抖动；另一方面通过保留 deepest sample 的 $\Phi/Hessian$，避免对主接触几何进行过度平滑，从而保留局部曲率补偿对真实接触主导点的响应能力。
+
+\subsection{适用条件与失效边界}
+
+本文方法的有效性建立在一组明确的局部建模前提之上：在单个时间步内，活动接触可由局部单主导法向场描述，SDF 法向流形在 patch 邻域内具有足够平滑的几何结构，且接触演化不伴随剧烈的最近点分支切换。在这类场景下，一阶间隙预测的主要误差可以理解为局部切平面外推造成的几何失配，此时基于 Weingarten 映射的二阶前馈能够作为一致的局部修正进入 RHS，并保持与原有互补主链兼容。
+
+相反，当接触由 $C^0$ 边缘、尖角、极小侧隙或多分支最近点竞争主导时，局部点接触的微分展开本身就不再保持稳定一致。此时，曲率项不应被解释为可靠的普适修正，而只能作为在保守 regime、patch 约化与候选筛选共同约束下的局部辅助信息。也正因为如此，本文引入 \texttt{CompactDiscrete} 并对 regime 采用算例级预设配置；本文不解决运行时自动 regime 识别问题，也不主张某一种局部表示对全部接触场景统一最优。

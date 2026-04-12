@@ -1,0 +1,72 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{mathptmx}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\algrenewcommand\algorithmicif{\textbf{If}}
+\algrenewcommand\algorithmicthen{\textbf{Then}}
+\algrenewcommand\algorithmicelse{\textbf{Else}}
+
+\graphicspath{{./}}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.82}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+
+\title{\textbf{Signed-Distance-Field Local Geometry Feedforward for Complementarity-Based Rigid-Body Contact}}
+\author{
+    Lijing Wang$^1$, Wei Fan$^2$, Hui Ren$^{1,2,*}$\\[1em]
+    $^1$Faculty of Computing, Harbin Institute of Technology, Harbin, China\\
+    $^2$Institute of Aerospace Vehicle Dynamics and Control,\\
+    School of Astronautics, Harbin Institute of Technology, Harbin, China\\[0.5em]
+    $^*$Corresponding author: renhui@hit.edu.cn
+}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\input{00_abstract_en.tex}
+\end{abstract}
+\noindent\textbf{Keywords:} rigid-body contact; linear complementarity problem; signed distance field; local geometric representation; nonsmooth multibody dynamics
+
+\section{Introduction}
+\input{01_introduction_en.tex}
+
+\section{Related Work}
+\input{02_related_work_en.tex}
+
+\section{Core Method: Geometry-Aware Complementarity-Based Rigid Contact Modeling}
+\input{03_methodology_en.tex}
+
+\section{Computational Realization}
+\input{04_implementation_en.tex}
+
+\section{Multibody Simulation Experiments}
+\input{05_experiments_en.tex}
+
+\section{Conclusion}
+\input{06_conclusion_en.tex}
+
+\section*{Statements and Declarations}
+\input{07_declarations_en.tex}
+
+\bibliographystyle{plainurl}
+\bibliography{references,references_extra}
+
+\end{document}

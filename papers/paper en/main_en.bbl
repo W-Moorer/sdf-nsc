@@ -1,0 +1,572 @@
+\begin{thebibliography}{10}
+
+\bibitem{sdfbeam2020}
+Miquel Aguirre and Stephane Avril.
+\newblock An implicit {3D} corotational formulation for frictional contact
+  dynamics of beams against rigid surfaces using discrete signed distance
+  fields.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  371:113275, 2020.
+\newblock \href {https://doi.org/10.1016/j.cma.2020.113275}
+  {\path{doi:10.1016/j.cma.2020.113275}}.
+
+\bibitem{ainsley2012spacm}
+Samantha Ainsley, Etienne Vouga, Eitan Grinspun, and Rasmus Tamstorf.
+\newblock Speculative parallel asynchronous contact mechanics.
+\newblock {\em ACM Transactions on Graphics}, 31(6):1--8, 2012.
+\newblock \href {https://doi.org/10.1145/2366145.2366170}
+  {\path{doi:10.1145/2366145.2366170}}.
+
+\bibitem{contactgraphicscourse2021}
+Sheldon Andrews and Kenny Erleben.
+\newblock Contact and friction simulation for computer graphics.
+\newblock In {\em ACM SIGGRAPH 2021 Courses}, pages 1--124, 2021.
+\newblock \href {https://doi.org/10.1145/3450508.3464571}
+  {\path{doi:10.1145/3450508.3464571}}.
+
+\bibitem{anitescu2004constraint}
+Mihai Anitescu and Gary~D. Hart.
+\newblock A constraintstabilized timestepping approach for rigid multibody
+  dynamics with joints, contact and friction.
+\newblock {\em International Journal for Numerical Methods in Engineering},
+  60(14):2335--2371, 2004.
+\newblock \href {https://doi.org/10.1002/nme.1047}
+  {\path{doi:10.1002/nme.1047}}.
+
+\bibitem{anitescu1997formulating}
+Mihai Anitescu and Florian~A. Potra.
+\newblock Formulating dynamic multi-rigid-body contact problems with friction
+  as solvable linear complementarity problems.
+\newblock {\em Nonlinear Dynamics}, 14(3):231--247, 1997.
+\newblock \href {https://doi.org/10.1023/A:1008292328909}
+  {\path{doi:10.1023/A:1008292328909}}.
+
+\bibitem{anitescu2010iterative}
+Mihai Anitescu and Alessandro Tasora.
+\newblock An iterative approach for cone complementarity problems for nonsmooth
+  dynamics.
+\newblock {\em Computational Optimization and Applications}, 47(2):207--235,
+  2008.
+\newblock \href {https://doi.org/10.1007/s10589-008-9223-4}
+  {\path{doi:10.1007/s10589-008-9223-4}}.
+
+\bibitem{baraff1989analytical}
+D.~Baraff.
+\newblock Analytical methods for dynamic simulation of non-penetrating rigid
+  bodies.
+\newblock {\em ACM SIGGRAPH Computer Graphics}, 23(3):223--232, 1989.
+\newblock \href {https://doi.org/10.1145/74334.74356}
+  {\path{doi:10.1145/74334.74356}}.
+
+\bibitem{baraff1994fast}
+David Baraff.
+\newblock Fast contact force computation for nonpenetrating rigid bodies.
+\newblock In {\em Proceedings of the 21st annual conference on Computer
+  graphics and interactive techniques - SIGGRAPH '94}, pages 23--34, 1994.
+\newblock \href {https://doi.org/10.1145/192161.192168}
+  {\path{doi:10.1145/192161.192168}}.
+
+\bibitem{contacttutorial2016}
+Alejandro Blumentals, Bernard Brogliato, and Florence Bertails-Descoubes.
+\newblock The contact problem in lagrangian systems subject to bilateral and
+  unilateral constraints, with or without sliding coulombs friction: a
+  tutorial.
+\newblock {\em Multibody System Dynamics}, 38(1):43--76, 2016.
+\newblock \href {https://doi.org/10.1007/s11044-016-9527-6}
+  {\path{doi:10.1007/s11044-016-9527-6}}.
+
+\bibitem{bridson2002robust}
+Robert Bridson, Ronald Fedkiw, and John Anderson.
+\newblock Robust treatment of collisions, contact and friction for cloth
+  animation.
+\newblock {\em ACM Transactions on Graphics}, 21(3):594--603, 2002.
+\newblock \href {https://doi.org/10.1145/566654.566623}
+  {\path{doi:10.1145/566654.566623}}.
+
+\bibitem{contactmultiscale2025}
+Federico~J. Cavalieri, Eliana Sanchez, and Alberto Cardona.
+\newblock Contact-force multiscale calculation in the framework of the
+  nonsmooth dynamic approach.
+\newblock {\em Multibody System Dynamics}, 66(1):231--262, 2025.
+\newblock \href {https://doi.org/10.1007/s11044-025-10063-3}
+  {\path{doi:10.1007/s11044-025-10063-3}}.
+
+\bibitem{catchingup2018}
+Alexandre Charles, Fabien Casenave, and Christoph Glocker.
+\newblock A catching-up algorithm for multibody dynamics with impacts and dry
+  friction.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  334:208--237, 2018.
+\newblock \href {https://doi.org/10.1016/j.cma.2018.01.054}
+  {\path{doi:10.1016/j.cma.2018.01.054}}.
+
+\bibitem{unifiedshock2023}
+Yi-Lu Chen, Mickael Ly, and Chris Wojtan.
+\newblock Unified treatment of contact, friction and shock-propagation in rigid
+  body animation.
+\newblock In {\em Proceedings of the ACM SIGGRAPH/Eurographics Symposium on
+  Computer Animation}, pages 1--2, 2023.
+\newblock \href {https://doi.org/10.1145/3606037.3606836}
+  {\path{doi:10.1145/3606037.3606836}}.
+
+\bibitem{chen2024primaldual}
+Yi-Lu Chen, Micka{\"e}l Ly, and Chris Wojtan.
+\newblock Primal-dual non-smooth friction for rigid body animation.
+\newblock In {\em Special Interest Group on Computer Graphics and Interactive
+  Techniques Conference Conference Papers}, pages 1--10, 2024.
+\newblock \href {https://doi.org/10.1145/3641519.3657485}
+  {\path{doi:10.1145/3641519.3657485}}.
+
+\bibitem{proximalcontact2017}
+Kenny Erleben.
+\newblock Rigid body contact problems using proximal operators.
+\newblock In {\em Proceedings of the ACM SIGGRAPH / Eurographics Symposium on
+  Computer Animation}, pages 1--12, 2017.
+\newblock \href {https://doi.org/10.1145/3099564.3099575}
+  {\path{doi:10.1145/3099564.3099575}}.
+
+\bibitem{intersectionfree2021}
+Zachary Ferguson, Minchen Li, Teseo Schneider, Francisca Gil-Ureta, Timothy
+  Langlois, Chenfanfu Jiang, Denis Zorin, Danny~M. Kaufman, and Daniele
+  Panozzo.
+\newblock Intersection-free rigid body dynamics.
+\newblock {\em ACM Transactions on Graphics}, 40(4):1--16, 2021.
+\newblock \href {https://doi.org/10.1145/3450626.3459802}
+  {\path{doi:10.1145/3450626.3459802}}.
+
+\bibitem{flores2022contact}
+Paulo Flores.
+\newblock Contact mechanics for dynamical systems: a comprehensive review.
+\newblock {\em Multibody System Dynamics}, 54(2):127--177, 2022.
+\newblock \href {https://doi.org/10.1007/s11044-021-09803-y}
+  {\path{doi:10.1007/s11044-021-09803-y}}.
+
+\bibitem{contactbasics2023}
+Paulo Flores, Jorge Ambrosio, and Hamid~M. Lankarani.
+\newblock Contact-impact events with friction in multibody dynamics: Back to
+  basics.
+\newblock {\em Mechanism and Machine Theory}, 184:105305, 2023.
+\newblock \href {https://doi.org/10.1016/j.mechmachtheory.2023.105305}
+  {\path{doi:10.1016/j.mechmachtheory.2023.105305}}.
+
+\bibitem{francu2017solids}
+Mihai Francu and Florica Moldoveanu.
+\newblock Position based simulation of solids with accurate contact handling.
+\newblock {\em Computers \& Graphics}, 69:12--23, 2017.
+\newblock \href {https://doi.org/10.1016/j.cag.2017.09.004}
+  {\path{doi:10.1016/j.cag.2017.09.004}}.
+
+\bibitem{frisken2000adf}
+Sarah~F. Frisken, Ronald~N. Perry, Alyn~P. Rockwood, and Thouis~R. Jones.
+\newblock Adaptively sampled distance fields.
+\newblock In {\em Proceedings of the 27th annual conference on Computer
+  graphics and interactive techniques - SIGGRAPH '00}, pages 249--254, 2000.
+\newblock \href {https://doi.org/10.1145/344779.344899}
+  {\path{doi:10.1145/344779.344899}}.
+
+\bibitem{autocontact2023}
+Alfredo Gay~Neto.
+\newblock Framework for automatic contact detection in a multibody system.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  403:115703, 2023.
+\newblock \href {https://doi.org/10.1016/j.cma.2022.115703}
+  {\path{doi:10.1016/j.cma.2022.115703}}.
+
+\bibitem{gilbert1988fast}
+Elmer~G. Gilbert, Daniel~W. Johnson, and S.~S. Keerthi.
+\newblock A fast procedure for computing the distance between complex objects
+  in three-dimensional space.
+\newblock {\em IEEE Journal of Robotics and Automation}, 4(2):193--203, 1988.
+\newblock \href {https://doi.org/10.1109/56.2083} {\path{doi:10.1109/56.2083}}.
+
+\bibitem{harmon2009acm}
+David Harmon, Etienne Vouga, Breannan Smith, Rasmus Tamstorf, and Eitan
+  Grinspun.
+\newblock Asynchronous contact mechanics.
+\newblock {\em ACM Transactions on Graphics}, 28(3):1--12, 2009.
+\newblock \href {https://doi.org/10.1145/1531326.1531393}
+  {\path{doi:10.1145/1531326.1531393}}.
+
+\bibitem{hart1996sphere}
+John~C. Hart.
+\newblock Sphere tracing: a geometric method for the antialiased ray tracing of
+  implicit surfaces.
+\newblock {\em The Visual Computer}, 12(10):527--545, 1996.
+\newblock \href {https://doi.org/10.1007/s003710050084}
+  {\path{doi:10.1007/s003710050084}}.
+
+\bibitem{polygonalcontact2023}
+Gerhard Hippmann.
+\newblock Polygonal contact model revisited: notes on usage and improved
+  implementation.
+\newblock {\em Multibody System Dynamics}, 60(2):219--231, 2023.
+\newblock \href {https://doi.org/10.1007/s11044-023-09895-8}
+  {\path{doi:10.1007/s11044-023-09895-8}}.
+
+\bibitem{jean1999nonsmooth}
+M.~Jean.
+\newblock The non-smooth contact dynamics method.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  177(3-4):235--257, 1999.
+\newblock \href {https://doi.org/10.1016/S0045-7825(98)00383-1}
+  {\path{doi:10.1016/S0045-7825(98)00383-1}}.
+
+\bibitem{lai2024unifying}
+Zhengshou Lai, Y.~T. Feng, Jidong Zhao, and Linchong Huang.
+\newblock Unifying the contact in signed distance field-based and conventional
+  discrete element methods.
+\newblock {\em Computers and Geotechnics}, 176:106764, 2024.
+\newblock \href {https://doi.org/10.1016/j.compgeo.2024.106764}
+  {\path{doi:10.1016/j.compgeo.2024.106764}}.
+
+\bibitem{sdfcfddem2023}
+Zhengshou Lai, Jidong Zhao, Shiwei Zhao, and Linchong Huang.
+\newblock Signed distance field enhanced fully resolved {CFD}-{DEM} for
+  simulation of granular flows involving multiphase fluids and irregularly
+  shaped particles.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  414:116195, 2023.
+\newblock \href {https://doi.org/10.1016/j.cma.2023.116195}
+  {\path{doi:10.1016/j.cma.2023.116195}}.
+
+\bibitem{sdfdem2022}
+Zhengshou Lai, Shiwei Zhao, Jidong Zhao, and Linchong Huang.
+\newblock Signed distance field framework for unified {DEM} modeling of
+  granular media with arbitrary particle shapes.
+\newblock {\em Computational Mechanics}, 70(4):763--783, 2022.
+\newblock \href {https://doi.org/10.1007/s00466-022-02220-8}
+  {\path{doi:10.1007/s00466-022-02220-8}}.
+
+\bibitem{larsson2006dbvh}
+Thomas Larsson and Tomas Akenine-Moller.
+\newblock A dynamic bounding volume hierarchy for generalized collision
+  detection.
+\newblock {\em Computers \& Graphics}, 30(3):450--459, 2006.
+\newblock \href {https://doi.org/10.1016/j.cag.2006.02.011}
+  {\path{doi:10.1016/j.cag.2006.02.011}}.
+
+\bibitem{li2020ipc}
+Minchen Li, Zachary Ferguson, Teseo Schneider, Timothy~R. Langlois, Denis
+  Zorin, Daniele Panozzo, Chenfanfu Jiang, and Danny~M. Kaufman.
+\newblock Incremental potential contact: Intersection- and inversion-free,
+  large deformation dynamics.
+\newblock {\em ACM Transactions on Graphics}, 39(4):49:1--49:15, 2020.
+\newblock \href {https://doi.org/10.1145/3386569.3392425}
+  {\path{doi:10.1145/3386569.3392425}}.
+
+\bibitem{liu2024sdfsdf}
+Pengfei Liu, Yuqing Zhang, He~Wang, Milo~K. Yip, Elvis~S. Liu, and Xiaogang
+  Jin.
+\newblock Real-time collision detection between general {SDF}s.
+\newblock {\em Computer Aided Geometric Design}, 111:102305, 2024.
+\newblock \href {https://doi.org/10.1016/j.cagd.2024.102305}
+  {\path{doi:10.1016/j.cagd.2024.102305}}.
+
+\bibitem{lopez2024convexsdf}
+Pedro L{\'o}pez-Adeva Fern{\'a}ndez-Layos and Luis F.~S. Merchante.
+\newblock Convex body collision detection using the signed distance function.
+\newblock {\em Computer-Aided Design}, 170:103685, 2024.
+\newblock \href {https://doi.org/10.1016/j.cad.2024.103685}
+  {\path{doi:10.1016/j.cad.2024.103685}}.
+
+\bibitem{predictioncorrection2025}
+Xiaoxuan Ma, Shijie Zhao, Yang An, Kangdi Li, Zhan Mu, and Tianshu Wang.
+\newblock A prediction-correction method for spatial frictional contact
+  problems in nonsmooth multibody dynamics.
+\newblock {\em Multibody System Dynamics}, 2025.
+\newblock \href {https://doi.org/10.1007/s11044-025-10129-2}
+  {\path{doi:10.1007/s11044-025-10129-2}}.
+
+\bibitem{macklin2020sdfcollision}
+Miles Macklin, Kenny Erleben, Matthias M{\"u}ller, and Nuttapong Chentanez.
+\newblock Local optimization for robust signed distance field collision.
+\newblock {\em Proceedings of the ACM on Computer Graphics and Interactive
+  Techniques}, 3(1):8:1--8:17, 2020.
+\newblock \href {https://doi.org/10.1145/3384538} {\path{doi:10.1145/3384538}}.
+
+\bibitem{macklin2016xpbd}
+Miles Macklin, Matthias M{\"u}ller, and Nuttapong Chentanez.
+\newblock {XPBD}: Position-based simulation of compliant constrained dynamics.
+\newblock In {\em Proceedings of the 9th International Conference on Motion in
+  Games}, pages 49--54, 2016.
+\newblock \href {https://doi.org/10.1145/2994258.2994272}
+  {\path{doi:10.1145/2994258.2994272}}.
+
+\bibitem{macklin2019smallsteps}
+Miles Macklin, Kier Storey, Michelle Lu, Pierre Terdiman, Nuttapong Chentanez,
+  Stefan Jeschke, and Matthias M{\"u}ller.
+\newblock Small steps in physics simulation.
+\newblock In {\em Proceedings of the ACM SIGGRAPH/Eurographics Symposium on
+  Computer Animation}, pages 1--7, 2019.
+\newblock \href {https://doi.org/10.1145/3309486.3340247}
+  {\path{doi:10.1145/3309486.3340247}}.
+
+\bibitem{melanz2017comparison}
+Daniel Melanz, Luning Fang, and Dan Negrut.
+\newblock A comparison of numerical methods for solving multibody dynamics
+  problems with frictional contact modeled via differential variational
+  inequalities.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  320:668--693, 2017.
+\newblock \href {https://doi.org/10.1016/j.cma.2017.03.010}
+  {\path{doi:10.1016/j.cma.2017.03.010}}.
+
+\bibitem{muller2007pbd}
+Matthias Muller, Bruno Heidelberger, Marcus Hennix, and John Ratcliff.
+\newblock Position based dynamics.
+\newblock {\em Journal of Visual Communication and Image Representation},
+  18(2):109--118, 2007.
+\newblock \href {https://doi.org/10.1016/j.jvcir.2007.01.005}
+  {\path{doi:10.1016/j.jvcir.2007.01.005}}.
+
+\bibitem{xpbdrigidbody2020}
+Matthias Muller, Miles Macklin, Nuttapong Chentanez, Stefan Jeschke, and
+  TaeYong Kim.
+\newblock Detailed rigid body simulation with extended position based dynamics.
+\newblock {\em Computer Graphics Forum}, 39(8):101--112, 2020.
+\newblock \href {https://doi.org/10.1111/cgf.14105}
+  {\path{doi:10.1111/cgf.14105}}.
+
+\bibitem{museth2013vdb}
+Ken Museth.
+\newblock {VDB}.
+\newblock {\em ACM Transactions on Graphics}, 32(3):1--22, 2013.
+\newblock \href {https://doi.org/10.1145/2487228.2487235}
+  {\path{doi:10.1145/2487228.2487235}}.
+
+\bibitem{museth2021nanovdb}
+Ken Museth.
+\newblock {NanoVDB}: A {GPU}-friendly and portable {VDB} data structure for
+  real-time rendering and simulation.
+\newblock In {\em ACM SIGGRAPH 2021 Talks}, pages 1:1--1:2, 2021.
+\newblock \href {https://doi.org/10.1145/3450623.3464653}
+  {\path{doi:10.1145/3450623.3464653}}.
+
+\bibitem{nencioni2025conformal}
+Leandro Nencioni, Enrico Meli, Andrea Rindi, and Zhiyong Shi.
+\newblock A new efficient conformal contact model for multibody and railway
+  applications.
+\newblock {\em Multibody System Dynamics}, 64(4):587--626, 2025.
+\newblock \href {https://doi.org/10.1007/s11044-024-10028-y}
+  {\path{doi:10.1007/s11044-024-10028-y}}.
+
+\bibitem{effectivemass2022}
+Parviz~E. Nikravesh and Mohammad Poursina.
+\newblock Determination of effective mass for continuous contact models in
+  multibody dynamics.
+\newblock {\em Multibody System Dynamics}, 58(3-4):253--273, 2022.
+\newblock \href {https://doi.org/10.1007/s11044-022-09859-4}
+  {\path{doi:10.1007/s11044-022-09859-4}}.
+
+\bibitem{convexquasistatic2021}
+Tao Pang and Russ Tedrake.
+\newblock A convex quasistatic time-stepping scheme for rigid multibody systems
+  with contact and friction.
+\newblock In {\em 2021 IEEE International Conference on Robotics and Automation
+  (ICRA)}, pages 6614--6620, 2021.
+\newblock \href {https://doi.org/10.1109/ICRA48506.2021.9560941}
+  {\path{doi:10.1109/ICRA48506.2021.9560941}}.
+
+\bibitem{pazouki2017compliant}
+Arman Pazouki, Micha{\l} Kwarta, Kyle Williams, William Likos, Radu Serban,
+  Paramsothy Jayakumar, and Dan Negrut.
+\newblock Compliant contact versus rigid contact: A comparison in the context
+  of granular dynamics.
+\newblock {\em Physical Review E}, 96(4):042905, 2017.
+\newblock \href {https://doi.org/10.1103/PhysRevE.96.042905}
+  {\path{doi:10.1103/PhysRevE.96.042905}}.
+
+\bibitem{symplecticcontact2019}
+Haijun Peng, Ningning Song, and Ziyun Kan.
+\newblock A nonsmooth contact dynamic algorithm based on the symplectic method
+  for multibody system analysis with unilateral constraints.
+\newblock {\em Multibody System Dynamics}, 49(2):119--153, 2019.
+\newblock \href {https://doi.org/10.1007/s11044-019-09719-8}
+  {\path{doi:10.1007/s11044-019-09719-8}}.
+
+\bibitem{peng2022sensitivity}
+Haijun Peng, Mengru Zhang, Ningning Song, and Ziyun Kan.
+\newblock Sensitivity-analysis methods for nonsmooth multibody systems with
+  contact and friction.
+\newblock {\em Multibody System Dynamics}, 54(3):345--371, 2022.
+\newblock \href {https://doi.org/10.1007/s11044-022-09810-7}
+  {\path{doi:10.1007/s11044-022-09810-7}}.
+
+\bibitem{pfeiffer2012nonsmooth}
+Friedrich Pfeiffer.
+\newblock On non-smooth multibody dynamics.
+\newblock {\em Proceedings of the Institution of Mechanical Engineers, Part K:
+  Journal of Multi-body Dynamics}, 226(2):147--177, 2012.
+\newblock \href {https://doi.org/10.1177/1464419312438487}
+  {\path{doi:10.1177/1464419312438487}}.
+
+\bibitem{lapjoints2016}
+Florian Pichler, Wolfgang Witteveen, and Peter Fischer.
+\newblock A complete strategy for efficient and accurate multibody dynamics of
+  flexible structures with large lap joints considering contact and friction.
+\newblock {\em Multibody System Dynamics}, 40(4):407--436, 2016.
+\newblock \href {https://doi.org/10.1007/s11044-016-9555-2}
+  {\path{doi:10.1007/s11044-016-9555-2}}.
+
+\bibitem{sphcontact2023}
+T.~Probst and M.~Teschner.
+\newblock Monolithic friction and contact handling for rigid bodies and fluids
+  using {SPH}.
+\newblock {\em Computer Graphics Forum}, 42(1):155--179, 2023.
+\newblock \href {https://doi.org/10.1111/cgf.14727}
+  {\path{doi:10.1111/cgf.14727}}.
+
+\bibitem{adaptivesdf2023}
+Eduard Pujol and Antonio Chica.
+\newblock Adaptive approximation of signed distance fields through piecewise
+  continuous interpolation.
+\newblock {\em Computers \& Graphics}, 114:337--346, 2023.
+\newblock \href {https://doi.org/10.1016/j.cag.2023.06.020}
+  {\path{doi:10.1016/j.cag.2023.06.020}}.
+
+\bibitem{superellipsecontact2025}
+Olivier R.~Gouveia, Jose M.~Guedes, and Rui B.~Ruben.
+\newblock Contact detection in computational mechanics: a signed distance field
+  approach for convex superelliptical bodies.
+\newblock {\em Computational Mechanics}, 76(6):1635--1657, 2025.
+\newblock \href {https://doi.org/10.1007/s00466-025-02666-6}
+  {\path{doi:10.1007/s00466-025-02666-6}}.
+
+\bibitem{gradientcontact2025}
+Sipu Ruan and Jundong Mei.
+\newblock Gradient-parameterized deformable minkowski sum with applications on
+  contact detection.
+\newblock {\em Multibody System Dynamics}, 2025.
+\newblock \href {https://doi.org/10.1007/s11044-025-10134-5}
+  {\path{doi:10.1007/s11044-025-10134-5}}.
+
+\bibitem{flexiblecontact2020}
+Ningning Song, Haijun Peng, Ziyun Kan, and Biaosong Chen.
+\newblock A novel nonsmooth approach for flexible multibody systems with
+  contact and friction in {3D} space.
+\newblock {\em Nonlinear Dynamics}, 102(3):1375--1408, 2020.
+\newblock \href {https://doi.org/10.1007/s11071-020-05972-1}
+  {\path{doi:10.1007/s11071-020-05972-1}}.
+
+\bibitem{stewart1996implicit}
+David~E. Stewart and Jeffrey~C. Trinkle.
+\newblock An implicit time-stepping scheme for rigid body dynamics with
+  inelastic collisions and {C}oulomb friction.
+\newblock {\em International Journal for Numerical Methods in Engineering},
+  39(15):2673--2691, 1996.
+\newblock \href
+  {https://doi.org/10.1002/(SICI)1097-0207(19960815)39:15<2673::AID-NME972>3.0.CO;2-I}
+  {\path{doi:10.1002/(SICI)1097-0207(19960815)39:15<2673::AID-NME972>3.0.CO;2-I}}.
+
+\bibitem{frictionalmonolith2021}
+Tetsuya Takahashi and Christopher Batty.
+\newblock Frictionalmonolith.
+\newblock {\em ACM Transactions on Graphics}, 40(6):1--20, 2021.
+\newblock \href {https://doi.org/10.1145/3478513.3480539}
+  {\path{doi:10.1145/3478513.3480539}}.
+
+\bibitem{dynamicreconsdf2025}
+Tiantian Tang, Kai Luo, Qiang Tian, and Haiyan Hu.
+\newblock Dynamic reconstruction of signed distance field for efficient contact
+  analysis of irregular deformable bodies.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  445:118237, 2025.
+\newblock \href {https://doi.org/10.1016/j.cma.2025.118237}
+  {\path{doi:10.1016/j.cma.2025.118237}}.
+
+\bibitem{tasora2011matrixfree}
+A.~Tasora and M.~Anitescu.
+\newblock A matrix-free cone complementarity approach for solving large-scale,
+  nonsmooth, rigid body dynamics.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  200(5-8):439--453, 2011.
+\newblock \href {https://doi.org/10.1016/j.cma.2010.06.030}
+  {\path{doi:10.1016/j.cma.2010.06.030}}.
+
+\bibitem{teschner2005collision}
+M.~Teschner, S.~Kimmerle, B.~Heidelberger, G.~Zachmann, L.~Raghupathi,
+  A.~Fuhrmann, M.P. Cani, F.~Faure, N.~MagnenatThalmann, W.~Strasser, and
+  P.~Volino.
+\newblock Collision detection for deformable objects.
+\newblock {\em Computer Graphics Forum}, 24(1):61--81, 2005.
+\newblock \href {https://doi.org/10.1111/j.1467-8659.2005.00829.x}
+  {\path{doi:10.1111/j.1467-8659.2005.00829.x}}.
+
+\bibitem{conformalwheel2020}
+Edwin Vollebregt.
+\newblock Detailed wheel/rail geometry processing with the conformal contact
+  approach.
+\newblock {\em Multibody System Dynamics}, 52(2):135--167, 2020.
+\newblock \href {https://doi.org/10.1007/s11044-020-09762-w}
+  {\path{doi:10.1007/s11044-020-09762-w}}.
+
+\bibitem{vouga2011avcm}
+E.~Vouga, D.~Harmon, R.~Tamstorf, and E.~Grinspun.
+\newblock Asynchronous variational contact mechanics.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  200(25-28):2181--2194, 2011.
+\newblock \href {https://doi.org/10.1016/j.cma.2011.03.010}
+  {\path{doi:10.1016/j.cma.2011.03.010}}.
+
+\bibitem{wang2021nonsmooth}
+Kun Wang, Qiang Tian, and Haiyan Hu.
+\newblock Nonsmooth spatial frictional contact dynamics of multibody systems.
+\newblock {\em Multibody System Dynamics}, 53(1):1--27, 2021.
+\newblock \href {https://doi.org/10.1007/s11044-021-09786-w}
+  {\path{doi:10.1007/s11044-021-09786-w}}.
+
+\bibitem{wang2021collision}
+Monan Wang and Jiaqi Cao.
+\newblock A review of collision detection for deformable objects.
+\newblock {\em Computer Animation and Virtual Worlds}, 32(5), 2021.
+\newblock \href {https://doi.org/10.1002/cav.1987}
+  {\path{doi:10.1002/cav.1987}}.
+
+\bibitem{hapticsdf2017}
+Hongyi Xu and Jernej Barbic.
+\newblock {6-DoF} haptic rendering using continuous collision detection between
+  points and signed distance fields.
+\newblock {\em IEEE Transactions on Haptics}, 10(2):151--161, 2017.
+\newblock \href {https://doi.org/10.1109/TOH.2016.2613872}
+  {\path{doi:10.1109/TOH.2016.2613872}}.
+
+\bibitem{contactsdf2025}
+Wen Yang and Wanxin Jin.
+\newblock Contact{SDF}: Signed distance functions as multi-contact models for
+  dexterous manipulation.
+\newblock {\em IEEE Robotics and Automation Letters}, 10(5):4212--4219, 2025.
+\newblock \href {https://doi.org/10.1109/LRA.2025.3548503}
+  {\path{doi:10.1109/LRA.2025.3548503}}.
+
+\bibitem{movingframesdf2024}
+Pu~You, Zhuyong Liu, and Ziqi Ma.
+\newblock A contact formulation using local frame of {SE(3)} group for
+  corotational beam against rigid solid via moving signed distance field.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  418:116532, 2024.
+\newblock \href {https://doi.org/10.1016/j.cma.2023.116532}
+  {\path{doi:10.1016/j.cma.2023.116532}}.
+
+\bibitem{inversedynamics2016}
+Samuel Zapolsky and Evan Drumwright.
+\newblock Inverse dynamics with rigid contact and friction.
+\newblock {\em Autonomous Robots}, 41(4):831--863, 2016.
+\newblock \href {https://doi.org/10.1007/s10514-016-9608-7}
+  {\path{doi:10.1007/s10514-016-9608-7}}.
+
+\bibitem{contactconstraints2016}
+Zhen Zhao and Caishan Liu.
+\newblock Contact constraints and dynamical equations in lagrangian systems.
+\newblock {\em Multibody System Dynamics}, 38(1):77--99, 2016.
+\newblock \href {https://doi.org/10.1007/s11044-016-9503-1}
+  {\path{doi:10.1007/s11044-016-9503-1}}.
+
+\bibitem{contactpatch2018}
+Alexandra~A. Zobova.
+\newblock Dry friction distributed over a contact patch between a rigid body
+  and a visco-elastic plane.
+\newblock {\em Multibody System Dynamics}, 45(2):203--222, 2018.
+\newblock \href {https://doi.org/10.1007/s11044-018-09637-1}
+  {\path{doi:10.1007/s11044-018-09637-1}}.
+
+\end{thebibliography}

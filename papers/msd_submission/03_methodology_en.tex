@@ -1,0 +1,191 @@
+This section presents the proposed local-geometry-aware contact modeling method. The method is built on a unified Moreau--Jean time-stepping and complementarity framework. Its central idea is not to replace the existing hard-contact solution chain, but to use local geometric information in the vicinity of contact as a correction to normal-gap prediction and inject it into the normal non-penetration subproblem. In this way, local geometric representation, curvature characterization, and complementarity constraints are coupled while leaving the original dynamical structure unchanged. Figure \ref{fig:flowchart} compares three contact-dynamics pipelines: traditional polygon-based contact modeling, SDF-based contact modeling using only first-order local geometry, and the geometry-aware complementarity-based rigid-contact pipeline proposed in this paper with curvature feedforward and regime-specific local representations.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\columnwidth]{flowchart_model.pdf}
+    \caption{Three contact-modeling pipelines considered in this work: a classical mesh-based pipeline, a first-order SDF-based pipeline, and the proposed geometry-aware complementarity-based rigid-contact pipeline with curvature feedforward and regime-specific local representations}
+    \label{fig:flowchart}
+\end{figure}
+
+Based on this modeling idea, the derivation proceeds through three closely connected steps. First, we analyze how the classical first-order local linearization leads to gap-prediction mismatch in high-curvature sliding and contact-state transitions. Second, we construct a local curvature representation from the SDF normal manifold and convert it into a geometric feedforward correction to the contact gap. Third, we introduce a contact-state-oriented configuration of local representations within a unified LCP chain, so that local geometric information enters the contact model in a regime-matched manner.
+
+\subsection{Limitations of first-order local gap prediction in complementarity-based normal constraints}
+In classical velocity-level complementarity-based contact treatment, in order to maintain non-penetration after a time step $\Delta t$, the velocity at the next step $\mathbf{v}^{l+1}$ is usually required to satisfy a first-order linearization of the local Signorini condition:
+\begin{equation}
+    \Phi(\mathbf{q}^{l+1}) \approx \Phi(\mathbf{q}^l) + \Delta t \, \mathbf{n}^T \mathbf{v}^{l+1} \geq 0.
+\end{equation}
+Here $\Phi(\mathbf{q}^l)$ is the current contact gap and $\mathbf{n}$ is the contact normal. For SDF-based point-contact models, the normal is obtained from the distance-field gradient. To remain consistent with the subsequent second-order curvature construction, we use the normalized unit normal
+\begin{equation}
+    \mathbf{n} = \frac{\nabla \Phi}{\|\nabla \Phi\|}.
+\end{equation}
+
+In the classical first-order model, when the time step is relatively large or the contact point undergoes rapid tangential sliding along a highly curved boundary, local tangent-plane extrapolation deviates from the true surface manifold. As a consequence, the right-hand-side gap prediction becomes systematically distorted. Such error can then be amplified by the nonsmooth complementarity equations into nonphysical impulses, which finally appear as high-frequency spikes and pulses in the velocity response.
+
+\subsection{Local curvature characterization via the Weingarten map}
+To capture the effect of local curvature on gap prediction, we elevate the local expansion of the contact gap from first to second order. Rather than differentiating the scalar distance field $\Phi$ directly to obtain a raw Hessian, we first construct the unit normal field
+\begin{equation}
+    \mathbf{n}(\mathbf{x}) = \frac{\nabla \Phi(\mathbf{x})}{\|\nabla \Phi(\mathbf{x})\|},
+\end{equation}
+and then apply central differencing to obtain the local curvature tensor
+\begin{equation}
+    \mathbf{W}(\mathbf{x}) \approx \nabla \mathbf{n}(\mathbf{x}).
+\end{equation}
+Accordingly, the second-order tensor used in this paper is essentially a discrete approximation of the Weingarten map on the SDF normal manifold, rather than a direct second derivative of the scalar field $\Phi$. For the local relative displacement $\mathbf{s} = \Delta t \, \mathbf{v}_{rel}$ over the current step, the second-order expansion of the contact gap becomes
+\begin{equation}
+    \Phi(\mathbf{q}^{l+1}) \approx \Phi(\mathbf{q}^{l}) + \mathbf{s}^T \mathbf{n} + \frac{1}{2}\mathbf{s}^T \mathbf{W}\mathbf{s}.
+\end{equation}
+Using a semi-implicit approximation of the current-step relative velocity then leads to the curvature compensation term
+\begin{equation}
+    C_{curve} = \frac{1}{2} (\Delta t)^2 \, \mathbf{v}_{rel}^T \mathbf{W} \mathbf{v}_{rel}.
+\end{equation}
+
+\subsection{Injection of local geometric feedforward into the normal LCP subproblem}
+To make the injection location explicit, we first write the normal contact subproblem under time stepping in standard complementarity form. Suppose that there are $m$ active contact patches in the current step. Let all generalized velocities be stacked in $\mathbf{v}\in\mathbb{R}^{n_v}$, let the mass matrix be $\mathbf{M}$, and let the normal contact Jacobian be $\mathbf{J}_n\in\mathbb{R}^{m\times n_v}$, whose $i$th row satisfies
+\begin{equation}
+    (\mathbf{J}_n \mathbf{v})_i = \mathbf{n}_i^T \mathbf{v}_{rel,i},
+\end{equation}
+that is, it gives the relative normal velocity of the $i$th contact under the current generalized velocity. Temporarily retaining only the part associated with normal non-penetration, the Moreau--Jean-type discrete momentum update can be written as
+\begin{equation}
+    \mathbf{M}(\mathbf{v}^{l+1} - \mathbf{v}^{l}) = \Delta t\,\mathbf{f}^{l}_{ext} + \mathbf{J}_n^T \boldsymbol{\lambda}_n,
+\end{equation}
+where $\boldsymbol{\lambda}_n\in\mathbb{R}^{m}$ denotes the normal impulses of the active contacts over the time step. If the part without newly added normal impulses is denoted by the free velocity
+\begin{equation}
+    \mathbf{v}^{free} = \mathbf{v}^{l} + \mathbf{M}^{-1}\Delta t\,\mathbf{f}^{l}_{ext},
+\end{equation}
+then
+\begin{equation}
+    \mathbf{v}^{l+1} = \mathbf{v}^{free} + \mathbf{M}^{-1}\mathbf{J}_n^T \boldsymbol{\lambda}_n.
+\end{equation}
+
+Applying the first-order linearized Signorini non-penetration condition to all active contacts yields
+\begin{equation}
+    \mathbf{w}_n = \boldsymbol{\Phi} + \Delta t\,\mathbf{J}_n \mathbf{v}^{l+1} \ge 0,
+\end{equation}
+where $\boldsymbol{\Phi}=[\Phi_1,\ldots,\Phi_m]^T$ collects the normal gaps of all patches at the current time. Together with the complementarity conditions
+\begin{equation}
+    \boldsymbol{\lambda}_n \ge 0,\qquad
+    \mathbf{w}_n \ge 0,\qquad
+    \boldsymbol{\lambda}_n^T\mathbf{w}_n = 0,
+\end{equation}
+we obtain the standard normal LCP subproblem
+\begin{equation}
+    \mathbf{w}_n
+    =
+    \underbrace{\Delta t\,\mathbf{J}_n\mathbf{M}^{-1}\mathbf{J}_n^T}_{\mathbf{A}_n}
+    \boldsymbol{\lambda}_n
+    +
+    \underbrace{\left(\boldsymbol{\Phi} + \Delta t\,\mathbf{J}_n \mathbf{v}^{free}\right)}_{\mathbf{b}_n},
+    \qquad
+    0 \le \boldsymbol{\lambda}_n \perp \mathbf{w}_n \ge 0.
+\end{equation}
+This normal LCP therefore solves for the normal impulse vector $\boldsymbol{\lambda}_n$ over a discrete time step so that the updated normal velocity and the predicted gap jointly satisfy the Signorini-type non-penetration complementarity condition. Here $\mathbf{A}_n$ reflects the effective dynamical mapping induced by the coupling of mass distribution and contact Jacobian, while $\mathbf{b}_n$ collects the current geometric gaps and the free-motion prediction terms.
+
+In the full frictional-contact system, tangential unknowns, friction cones, or bilateral constraints are usually assembled together with the normal block into a more general MLCP or block-complementarity system. The key point for the present work, however, is that local geometric feedforward is injected only into the normal non-penetration channel and does not rewrite the left-hand dynamical coupling block itself. It is therefore sufficient to modify $\mathbf{b}_n$ without changing the structure, sparsity, or solution process of $\mathbf{A}_n$.
+
+This choice is not merely an engineering convenience; it is dictated by the discrete model itself. If the second-order curvature term were treated as an endogenous part of the unknown velocity, a more rigorous expression would be
+\begin{equation}
+    C_{curve,i}(\mathbf{v}^{l+1})
+    =
+    \frac{1}{2}(\Delta t)^2
+    (\mathbf{v}_{rel,i}^{l+1})^T
+    \mathbf{W}_i
+    \mathbf{v}_{rel,i}^{l+1},
+\end{equation}
+where $\mathbf{v}_{rel,i}^{l+1}$ itself depends on the unknown generalized velocity $\mathbf{v}^{l+1}$. Once substituted into
+\begin{equation}
+    \mathbf{v}^{l+1}
+    =
+    \mathbf{v}^{free}
+    +
+    \mathbf{M}^{-1}\mathbf{J}_n^T \boldsymbol{\lambda}_n,
+\end{equation}
+the complementarity residual becomes
+\begin{equation}
+    \mathbf{w}_n
+    =
+    \boldsymbol{\Phi}
+    +
+    \mathbf{c}_{curve}(\boldsymbol{\lambda}_n)
+    +
+    \Delta t\,\mathbf{J}_n\mathbf{v}^{free}
+    +
+    \Delta t\,\mathbf{J}_n\mathbf{M}^{-1}\mathbf{J}_n^T\boldsymbol{\lambda}_n,
+\end{equation}
+where $\mathbf{c}_{curve}(\boldsymbol{\lambda}_n)$ is already quadratic in the unknown impulse. In other words, once curvature correction is truly coupled into the left-hand unknowns, the original linear normal complementarity subproblem becomes a nonlinear complementarity problem (NCP), which no longer belongs to the standard LCP class targeted by the current solution chain. The objective of this paper is not to design a new nonlinear contact solver, but to introduce a minimally invasive geometric correction on top of the existing LCP chain; therefore, the curvature term must be frozen as an explicit feedforward quantity known at the current step.
+
+Directly modifying the dynamical matrix on the left-hand side would also undermine the stability and reusability of the underlying LCP structure. To preserve the complementarity equations, we adopt a parasitic right-hand-side injection strategy and write second-order geometric information into the effective contact gap as a feedforward bias:
+\begin{equation}
+    \Phi_{eff} = \Phi + C_{curve}.
+\end{equation}
+
+Stacking all patch-wise curvature corrections into $\mathbf{c}_{curve}=[C_{curve,1},\ldots,C_{curve,m}]^T$ gives
+\begin{equation}
+    \boldsymbol{\Phi}_{eff} = \boldsymbol{\Phi} + \mathbf{c}_{curve},
+\end{equation}
+so that the original first-order non-penetration condition can be rewritten as
+\begin{equation}
+    \mathbf{w}_n^{eff} = \boldsymbol{\Phi}_{eff} + \Delta t\,\mathbf{J}_n \mathbf{v}^{l+1} \ge 0.
+\end{equation}
+Substituting back into the velocity-eliminated form yields the injected normal LCP
+\begin{equation}
+    \mathbf{w}_n^{eff}
+    =
+    \mathbf{A}_n \boldsymbol{\lambda}_n
+    +
+    \underbrace{\left(\boldsymbol{\Phi}_{eff} + \Delta t\,\mathbf{J}_n \mathbf{v}^{free}\right)}_{\mathbf{b}_n^{eff}}
+    =
+    \mathbf{A}_n \boldsymbol{\lambda}_n + \mathbf{b}_n + \mathbf{c}_{curve},
+    \qquad
+    0 \le \boldsymbol{\lambda}_n \perp \mathbf{w}_n^{eff} \ge 0.
+\end{equation}
+
+Accordingly, the term ``injection'' in this paper means the following in mathematical terms: \textbf{the left-hand LCP matrix $\mathbf{A}_n$ is kept unchanged, and the curvature-based local prediction $\mathbf{c}_{curve}$ is added only to the right-hand term $\mathbf{b}_n$.} This has three immediate benefits. First, the matrix assembly, preconditioning structure, and complementarity iteration procedure of the underlying solver remain unchanged. Second, when $\mathbf{c}_{curve}=\mathbf{0}$, the system automatically degenerates to the original first-order model. Third, curvature information is confined to patch-level gap prediction and influences only the decision of whether and when normal impulse is required, without introducing additional dynamical degrees of freedom.
+
+From the perspective of numerical stability, this point is equally crucial. The matrix $\mathbf{A}_n=\Delta t\,\mathbf{J}_n\mathbf{M}^{-1}\mathbf{J}_n^T$ describes the global coupling among active contacts through effective mass transfer; its condition number, sparsity pattern, and block structure directly affect the convergence behavior of complementarity iterations. By contrast, the Hessian/Weingarten tensor comes from local differencing of a discrete SDF and is more sensitive to voxel resolution, interpolation error, nearest-point branch switching, and the geometric representative of each patch. If such second-order information were absorbed directly into the left-hand dynamical block, local geometric noise would propagate as a coupling perturbation over the entire contact system. Keeping it on the right-hand side, by contrast, amounts to correcting only the local gap prediction and contact-activation threshold of each patch. Its effect then remains patch-local and can be controlled conservatively through gating, clustering, and regime configuration. For this reason, the second-order curvature term is treated as a \textbf{geometric feedforward} rather than as a new dynamical coupling term.
+
+That is, without rewriting the overall structure of the underlying complementarity module, the local second-order geometric prediction is injected into the main LCP equation through a correction of the right-hand-side contact gap. This preserves the backbone of the traditional nonsmooth contact framework while incorporating the kinematic look-ahead associated with highly curved surfaces into contact activation.
+
+\subsection{Regime-oriented configuration of local geometric representations}
+This paper does not assume that a single contact proxy is equally suitable for all contact scenarios. Instead, two types of local contact regimes are preconfigured for different contact types. The current implementation does not include a unified runtime contact classifier; the contact representation is explicitly specified at the case or application level. For smooth continuous-sliding contacts such as industrial cams, eccentric disk--roller followers, and the Onset Stress Benchmark, the implementation uses the \texttt{SlidingPatch} representation. In this regime, the contact set retains a persistent manifold identity over time, and representative queries, local fitting, and candidate filtering are used to maintain continuous patch-level geometric updates. For compact, impulse-dominated, or geometrically singular contacts such as Twin Gear and head-on impact, the implementation uses \texttt{CompactDiscrete}, where the goal of the patch is mainly duplicate removal, normal stabilization, and dominant-geometry preservation rather than temporal tracking of a continuous sliding manifold.
+
+The core idea of this configuration strategy is that the curvature feedforward term does not guarantee positive gains for all contacts by itself. It becomes stable and useful only when embedded in a local manifold representation matched to the contact type. For smooth continuous contact, persistent tracking of the local manifold is a prerequisite for curvature feedforward to produce a net gain. For nonsmooth, impulse-dominated, or branch-switching-intensive contact, by contrast, a more conservative compact discrete representation is often more effective at suppressing nonphysical impulses induced by local geometric noise.
+
+Figure \ref{fig:contact_regime_flow} further summarizes the two regime-specific processing paths currently supported by the implementation. The system first performs candidate-sample preprocessing, optionally with sample-side OBB/BVH broad-phase acceleration to reduce candidate-query cost. It then follows either the \texttt{SlidingPatch} or \texttt{CompactDiscrete} path according to the regime preset in the case or application. Finally, the corrected effective gaps are written back into the same LCP solution chain.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\columnwidth]{flowchart_contact_regime.pdf}
+    \caption{Regime-specific processing paths used in the current implementation. The pipeline is organized into candidate preprocessing, preconfigured manifold construction, and constraint injection. Candidate samples may first pass through an optional sample-side OBB/BVH broad-phase; depending on the regime preset in a given case or application, the solver then follows either the \texttt{SlidingPatch} path or the \texttt{CompactDiscrete} path, and both branches finally inject effective gaps into the same LCP solve chain}
+    \label{fig:contact_regime_flow}
+\end{figure}
+
+\subsection{Patch-based reduction of the local contact manifold}
+Because discrete sampling may generate multiple neighboring samples within the same local contact zone, directly feeding all SDF query results point-wise into the complementarity module can amplify normal noise and duplicate contacts into significant numerical jitter. To address this issue, we introduce a patch-level clustering strategy over the active contact set.
+
+First, all candidate active samples are sorted by penetration depth. They are then clustered according to spatial proximity and normal consistency. For any candidate sample $\mathbf{x}_i$ and the representative sample $\mathbf{x}_k$ of an existing patch, the sample is merged into the same patch if
+\begin{equation}
+    \|\mathbf{x}_i - \mathbf{x}_k\| < r_{cluster},
+\end{equation}
+\begin{equation}
+    \mathbf{n}_i \cdot \mathbf{n}_k > \cos \theta_{cluster},
+\end{equation}
+where $r_{cluster}$ is the spatial-radius threshold and $\theta_{cluster}$ is the normal-angle threshold.
+
+Within each patch, the normal vector is averaged across samples and renormalized:
+\begin{equation}
+    \bar{\mathbf{n}}_k =
+    \frac{\sum_{i \in M_k} \mathbf{n}_i}
+         {\left\|\sum_{i \in M_k} \mathbf{n}_i\right\|}.
+\end{equation}
+The principal geometric quantities of the patch, however, are not fully averaged. For penetration depth $\Phi$, gradient, and curvature tensor $\mathbf{W}$, the values associated with the deepest sample in the patch are retained. Each patch is therefore ultimately represented by
+\begin{equation}
+    \left(\bar{\mathbf{n}}_k, \Phi_k^{deep}, \mathbf{W}_k^{deep}\right),
+\end{equation}
+which then enters the assembly of contact constraints in the complementarity module.
+
+This treatment serves two purposes simultaneously. On the one hand, normal averaging reduces directional jitter caused by discrete point contact. On the other hand, retaining the deepest-sample values of $\Phi$ and Hessian avoids excessive smoothing of the dominant contact geometry and preserves the ability of curvature compensation to respond to the true geometrically dominant point of contact.
+
+\subsection{Applicability conditions and failure boundaries}
+The effectiveness of the present method relies on a clear set of local modeling assumptions: over a single time step, the active contact can be described by a local field with a single dominant normal, the SDF normal manifold is sufficiently smooth within the patch neighborhood, and the contact evolution does not involve violent nearest-point branch switching. In such scenarios, the main error of first-order gap prediction can be interpreted as a geometric mismatch caused by local tangent-plane extrapolation, and the Weingarten-based second-order feedforward can be introduced consistently into the right-hand side while remaining compatible with the original complementarity chain.
+
+By contrast, when contact is dominated by $C^0$ edges, sharp corners, extremely small backlash, or competing nearest-point branches, the differential expansion of local point contact is no longer stable or consistent by itself. In that case, the curvature term should not be interpreted as a universally reliable correction. It can only act as auxiliary local information under the joint constraints of a conservative regime, patch reduction, and candidate filtering. This is precisely why \texttt{CompactDiscrete} is introduced and why regimes are configured at the case level. The present work does not solve runtime automatic regime identification, nor does it claim that one local representation is uniformly optimal across all contact scenarios.

@@ -43,6 +43,34 @@ std::string JsonEscape(const std::string& s) {
     return out;
 }
 
+std::string XmlEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char ch : s) {
+        switch (ch) {
+            case '&':
+                out += "&amp;";
+                break;
+            case '<':
+                out += "&lt;";
+                break;
+            case '>':
+                out += "&gt;";
+                break;
+            case '"':
+                out += "&quot;";
+                break;
+            case '\'':
+                out += "&apos;";
+                break;
+            default:
+                out += ch;
+                break;
+        }
+    }
+    return out;
+}
+
 bool ParseObjIndexToken(const std::string& token, int& out_index_zero_based) {
     if (token.empty()) {
         return false;
@@ -443,29 +471,49 @@ void BaselineCamCase::FinalizeVTKSeriesOutput() {
         return;
     }
 
-    const auto series_path =
-        std::filesystem::path(m_config.vtk_output_dir) / (m_vtk_frame_prefix + ".vtk.series");
-    std::ofstream out(series_path);
-    if (!out.is_open()) {
+    const auto output_dir = std::filesystem::path(m_config.vtk_output_dir);
+    const auto series_path = output_dir / (m_vtk_frame_prefix + ".vtk.series");
+    std::ofstream series_out(series_path);
+    if (!series_out.is_open()) {
         std::cerr << "Failed to open VTK series output path: " << series_path.string() << std::endl;
         return;
     }
 
-    out << "{\n";
-    out << "  \"file-series-version\": \"1.0\",\n";
-    out << "  \"files\": [\n";
+    series_out << "{\n";
+    series_out << "  \"file-series-version\": \"1.0\",\n";
+    series_out << "  \"files\": [\n";
     for (std::size_t i = 0; i < m_exported_vtk_frames.size(); ++i) {
         const auto& frame = m_exported_vtk_frames[i];
-        out << "    {\"name\": \"" << JsonEscape(frame.filename) << "\", \"time\": " << JsonNumber(frame.time) << "}";
+        series_out << "    {\"name\": \"" << JsonEscape(frame.filename) << "\", \"time\": "
+                   << JsonNumber(frame.time) << "}";
         if (i + 1 < m_exported_vtk_frames.size()) {
-            out << ",";
+            series_out << ",";
         }
-        out << "\n";
+        series_out << "\n";
     }
-    out << "  ]\n";
-    out << "}\n";
+    series_out << "  ]\n";
+    series_out << "}\n";
 
     std::cout << "[VTK] Series manifest saved to: " << series_path.string() << std::endl;
+
+    const auto pvd_path = output_dir / (m_vtk_frame_prefix + ".pvd");
+    std::ofstream pvd_out(pvd_path);
+    if (!pvd_out.is_open()) {
+        std::cerr << "Failed to open PVD output path: " << pvd_path.string() << std::endl;
+        return;
+    }
+
+    pvd_out << "<?xml version=\"1.0\"?>\n";
+    pvd_out << "<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
+    pvd_out << "  <Collection>\n";
+    for (const auto& frame : m_exported_vtk_frames) {
+        pvd_out << "    <DataSet timestep=\"" << JsonNumber(frame.time)
+                << "\" group=\"\" part=\"0\" file=\"" << XmlEscape(frame.filename) << "\"/>\n";
+    }
+    pvd_out << "  </Collection>\n";
+    pvd_out << "</VTKFile>\n";
+
+    std::cout << "[VTK] PVD manifest saved to: " << pvd_path.string() << std::endl;
 }
 
 void BaselineCamCase::Run() {

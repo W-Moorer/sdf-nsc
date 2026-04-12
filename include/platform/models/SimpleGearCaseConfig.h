@@ -48,6 +48,8 @@ struct SimpleGearCaseConfig {
 
     // Output.
     std::string output_csv_path = "data/outputs/baseline_simple_gear_nsc.csv";
+    std::string vtk_output_dir;
+    int vtk_stride = 1;
 };
 
 } // namespace models

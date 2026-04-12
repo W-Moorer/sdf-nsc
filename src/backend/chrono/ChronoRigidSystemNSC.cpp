@@ -1789,6 +1789,16 @@ chrono::ChVector3d ChronoRigidSystemNSC::GetGear2AngVelParent() const {
     return chrono::ChVector3d(0, 0, 0);
 }
 
+bool ChronoRigidSystemNSC::GetGear1BodySnapshot(BodyDebugSnapshot& out) const {
+    out = MakeBodyDebugSnapshot(m_gear1);
+    return out.valid;
+}
+
+bool ChronoRigidSystemNSC::GetGear2BodySnapshot(BodyDebugSnapshot& out) const {
+    out = MakeBodyDebugSnapshot(m_gear2);
+    return out.valid;
+}
+
 } // namespace backend
 } // namespace platform
 
